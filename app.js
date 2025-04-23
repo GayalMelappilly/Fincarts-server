@@ -2,6 +2,13 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import userRouter from './routes/user.route.js'
+import productRouter from './routes/product.route.js'
+import orderRouter from './routes/order.route.js'
+import cartRouter from './routes/cart.route.js'
+import wishlistRouter from './routes/wishlist.route.js'
+import sellerProductRouter from './routes/seller/product.route.js'
+import sellerProfileRouter from './routes/seller/profile.route.js'
+import sellerOrderRouter from './routes/seller/order.route.js'
 
 export const app = express()
 
@@ -18,4 +25,5 @@ app.use(cors({
     ]
 }))
 
-app.use('/api/v1', userRouter)
+app.use('/api/v1', userRouter, productRouter, orderRouter, cartRouter, wishlistRouter)
+app.use('/api/v1/seller', sellerOrderRouter, sellerProductRouter, sellerProfileRouter)
