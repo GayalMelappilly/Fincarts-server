@@ -1,5 +1,5 @@
 import client from '../config/db.js'
-import { addressInsertQuery, deleteRefreshToken, findRefreshTokenQuery, refreshTokenInsertQuery, userInsertQuery } from '../query/user.query.js'
+import { addressInsertQuery, deleteRefreshToken, findCurrentUserQuery, findRefreshTokenQuery, refreshTokenInsertQuery, userInsertQuery } from '../query/user.query.js'
 import { createAccessToken, createRefreshToken } from '../services/token.services.js'
 import { hashPassword } from '../utils/bcrypt.js'
 
@@ -68,7 +68,9 @@ export const createProfile = async (req, res) => {
                 data: {
                     name: user.FullName,
                     email: user.email,
-                    phone: user.phone
+                    phone: user.phone,
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
                 }
             })
 
@@ -93,25 +95,30 @@ export const createProfile = async (req, res) => {
 // Refresh token
 export const refresh = async (req, res) => {
     try {
-        const refreshToken = req.cookies.refreshToken;
+        const refreshToken = req.body.refreshToken;
+        console.log("REFRESH TOKEN : ", refreshToken)
 
         if (!refreshToken) {
             return res.status(401).json({ message: 'Refresh token not found' });
         }
 
-        const storedToken = await client.query(findRefreshTokenQuery, [
+        const response = await client.query(findRefreshTokenQuery, [
             refreshToken
         ])
+
+        const storedToken = response.rows[0]
+
+        console.log(storedToken)
 
         if (!storedToken || storedToken.expiresAt < new Date()) {
             return res.status(401).json({ message: 'Invalid or expired refresh token' });
         }
 
-        const accessToken = createAccessToken(storedToken.userId);
+        const accessToken = createAccessToken(storedToken.user_id);
 
         res.status(201).json({
             success: true,
-            accessToken
+            accessToken: accessToken
         });
 
     } catch (error) {
@@ -147,3 +154,60 @@ export const logout = async (req, res) => {
         });
     }
 };
+
+// Get current user
+
+export const getCurrentUser = async (req, res) => {
+    try {
+
+        const userId = req.userId
+
+        console.log("USER ID : ", userId)
+
+        const result = await client.query(findCurrentUserQuery, [
+            userId
+        ])
+
+        if (!result) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const row = result.rows[0]
+
+        const user = {
+            id: row.user_id,
+            fullName: row.full_name,
+            email: row.email,
+            phoneNumber: row.phone_number,
+            userType: row.user_type,
+            emailVerified: row.email_verified,
+            phoneVerified: row.phone_verified,
+            pointsBalance: row.points_balance,
+            profilePictureUrl: row.profile_picture_url,
+            createdAt: row.user_created_at,
+            updatedAt: row.user_updated_at,
+            address: {
+                id: row.address_id,
+                line1: row.address_line1,
+                line2: row.address_line2,
+                city: row.city,
+                state: row.state,
+                postalCode: row.postal_code,
+                country: row.country,
+                isDefault: row.is_default,
+                latitude: row.latitude,
+                longitude: row.longitude,
+                createdAt: row.address_created_at,
+                updatedAt: row.address_updated_at,
+            }
+        };
+
+        res.status(201).json({user});
+        return;
+    } catch (error) {
+        console.log("REACHED")
+        console.error('Error fetching user:', error);
+        res.status(500).json({ message: 'Server error' })
+        return;
+    }
+}

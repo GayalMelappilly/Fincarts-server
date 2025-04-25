@@ -1,4 +1,4 @@
-import { verifyAccessToken } from '../services/token.services';
+import { verifyAccessToken } from '../services/token.services.js';
 
 export const authenticate = (req, res, next) => {
   try {
@@ -12,6 +12,8 @@ export const authenticate = (req, res, next) => {
     
     // Verify token
     const decoded = verifyAccessToken(token);
+
+    console.log("DECODED : ",decoded)
     
     // Add user ID to request
     req.userId = decoded.userId;
