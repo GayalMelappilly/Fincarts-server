@@ -32,3 +32,6 @@ out/
 # Misc
 coverage/
 *.swp
+
+# Test
+test/

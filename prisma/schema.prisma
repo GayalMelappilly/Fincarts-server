@@ -1,0 +1,345 @@
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cart_items {
+  id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  cart_id         String         @db.Uuid
+  fish_listing_id String         @db.Uuid
+  quantity        Int
+  added_at        DateTime?      @default(now()) @db.Timestamptz(6)
+  shopping_carts  shopping_carts @relation(fields: [cart_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fish_listings   fish_listings  @relation(fields: [fish_listing_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([cart_id, fish_listing_id])
+}
+
+model fish_categories {
+  id                    String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                  String            @db.VarChar(100)
+  description           String?
+  image_url             String?
+  parent_category_id    String?           @db.Uuid
+  created_at            DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?         @default(now()) @db.Timestamptz(6)
+  fish_categories       fish_categories?  @relation("fish_categoriesTofish_categories", fields: [parent_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_fish_categories fish_categories[] @relation("fish_categoriesTofish_categories")
+  fish_listings         fish_listings[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model fish_listings {
+  id                   String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id            Int
+  category_id          String           @db.Uuid
+  name                 String           @db.VarChar(255)
+  description          String
+  price                Decimal          @db.Decimal(10, 2)
+  quantity_available   Int
+  images               String[]
+  age                  String?          @db.VarChar(50)
+  size                 String?          @db.VarChar(50)
+  color                String?          @db.VarChar(50)
+  breed                String?          @db.VarChar(100)
+  is_featured          Boolean?         @default(false)
+  created_at           DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?        @default(now()) @db.Timestamptz(6)
+  listing_status       String?          @default("active") @db.VarChar(50)
+  care_instructions    Json?            @default("{}")
+  dietary_requirements Json?            @default("{}")
+  view_count           Int?             @default(0)
+  cart_items           cart_items[]
+  fish_categories      fish_categories  @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                sellers          @relation(fields: [seller_id], references: [seller_id], onDelete: Cascade, onUpdate: NoAction)
+  order_items          order_items[]
+  reviews              reviews[]
+  wishlist_items       wishlist_items[]
+}
+
+model order_items {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  order_id        String        @db.Uuid
+  fish_listing_id String        @db.Uuid
+  quantity        Int
+  unit_price      Decimal       @db.Decimal(10, 2)
+  total_price     Decimal       @db.Decimal(10, 2)
+  created_at      DateTime?     @default(now()) @db.Timestamptz(6)
+  fish_listings   fish_listings @relation(fields: [fish_listing_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orders          orders        @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model orders {
+  id                  String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id             String            @db.Uuid
+  total_amount        Decimal           @db.Decimal(10, 2)
+  status              String            @db.VarChar(50)
+  created_at          DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?         @default(now()) @db.Timestamptz(6)
+  shipping_details_id String?           @db.Uuid
+  payment_details_id  String?           @db.Uuid
+  points_earned       Int?              @default(0)
+  points_used         Int?              @default(0)
+  discount_amount     Decimal?          @default(0) @db.Decimal(10, 2)
+  coupon_code         String?           @db.VarChar(50)
+  order_notes         String?
+  order_items         order_items[]
+  payment_details     payment_details?  @relation(fields: [payment_details_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shipping_details    shipping_details? @relation(fields: [shipping_details_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users               users             @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviews             reviews[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payment_details {
+  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  payment_method   String    @db.VarChar(50)
+  transaction_id   String?   @db.VarChar(255)
+  status           String    @db.VarChar(50)
+  payment_date     DateTime? @db.Timestamptz(6)
+  payment_metadata Json?     @default("{}")
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  orders           orders[]
+}
+
+model refresh_tokens {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String    @db.Uuid
+  token      String
+  expires_at DateTime  @db.Timestamptz(6)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model reviews {
+  id                   String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id              String        @db.Uuid
+  fish_listing_id      String        @db.Uuid
+  rating               Int
+  review_text          String?
+  review_images        String[]
+  created_at           DateTime?     @default(now()) @db.Timestamptz(6)
+  is_verified_purchase Boolean?      @default(false)
+  order_id             String?       @db.Uuid
+  fish_listings        fish_listings @relation(fields: [fish_listing_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orders               orders?       @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model seller_metrics {
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id          Int       @unique
+  total_sales        Decimal?  @default(0) @db.Decimal(12, 2)
+  total_orders       Int?      @default(0)
+  avg_rating         Decimal?  @default(0) @db.Decimal(3, 2)
+  total_listings     Int?      @default(0)
+  active_listings    Int?      @default(0)
+  last_calculated_at DateTime? @default(now()) @db.Timestamptz(6)
+  users              sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model seller_sales_history {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id     Int
+  date          DateTime  @db.Date
+  daily_sales   Decimal?  @default(0) @db.Decimal(10, 2)
+  order_count   Int?      @default(0)
+  new_customers Int?      @default(0)
+  cancellations Int?      @default(0)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  users         sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([seller_id, date])
+}
+
+model shipping_details {
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  carrier            String?   @db.VarChar(100)
+  tracking_number    String?   @db.VarChar(100)
+  shipping_cost      Decimal?  @db.Decimal(10, 2)
+  estimated_delivery DateTime? @db.Timestamptz(6)
+  actual_delivery    DateTime? @db.Timestamptz(6)
+  shipping_method    String?   @db.VarChar(100)
+  shipping_notes     Json?     @default("{}")
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+  orders             orders[]
+}
+
+model shopping_carts {
+  id                           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id                      String       @db.Uuid
+  created_at                   DateTime?    @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime?    @default(now()) @db.Timestamptz(6)
+  is_active                    Boolean?     @default(true)
+  abandoned_cart_reminder_sent Boolean?     @default(false)
+  cart_items                   cart_items[]
+  users                        users        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model user_addresses {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id       String    @db.Uuid
+  address_line1 String    @db.VarChar(255)
+  address_line2 String?   @db.VarChar(255)
+  city          String    @db.VarChar(100)
+  state         String    @db.VarChar(100)
+  postal_code   String    @db.VarChar(20)
+  country       String    @db.VarChar(100)
+  is_default    Boolean?  @default(false)
+  latitude      Float?
+  longitude     Float?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+  users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email               String           @unique @db.VarChar(255)
+  password_hash       String           @db.VarChar(255)
+  full_name           String           @db.VarChar(255)
+  phone_number        String?          @db.VarChar(50)
+  user_type           String           @db.VarChar(50)
+  created_at          DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?        @default(now()) @db.Timestamptz(6)
+  email_verified      Boolean?         @default(false)
+  phone_verified      Boolean?         @default(false)
+  points_balance      Int?             @default(0)
+  profile_picture_url String?
+  orders              orders[]
+  reviews             reviews[]
+  shopping_carts      shopping_carts[]
+  user_addresses      user_addresses[]
+  wishlists           wishlists[]
+}
+
+model wishlist_items {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  wishlist_id     String        @db.Uuid
+  fish_listing_id String        @db.Uuid
+  added_at        DateTime?     @default(now()) @db.Timestamptz(6)
+  notes           String?
+  fish_listings   fish_listings @relation(fields: [fish_listing_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  wishlists       wishlists     @relation(fields: [wishlist_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([wishlist_id, fish_listing_id])
+}
+
+model wishlists {
+  id             String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id        String           @db.Uuid
+  name           String?          @default("My Wishlist") @db.VarChar(100)
+  is_public      Boolean?         @default(false)
+  created_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  wishlist_items wishlist_items[]
+  users          users            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model seller_addresses {
+  address_id       Int              @id @default(autoincrement())
+  location_id      Int
+  address_line1    String           @db.VarChar(255)
+  address_line2    String?          @db.VarChar(255)
+  landmark         String?          @db.VarChar(255)
+  is_default       Boolean?         @default(false)
+  address_type     String?          @db.VarChar(50)
+  created_at       DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at       DateTime?        @default(now()) @db.Timestamp(6)
+  seller_locations seller_locations @relation(fields: [location_id], references: [location_id], onDelete: NoAction, onUpdate: NoAction)
+  sellers          sellers[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model seller_documents {
+  document_id         Int       @id @default(autoincrement())
+  seller_id           Int
+  document_type       String    @db.VarChar(50)
+  document_url        String    @db.VarChar(255)
+  verification_status String?   @default("PENDING") @db.VarChar(20)
+  created_at          DateTime? @default(now()) @db.Timestamp(6)
+  updated_at          DateTime? @default(now()) @db.Timestamp(6)
+  sellers             sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model seller_locations {
+  location_id      Int                @id @default(autoincrement())
+  latitude         Decimal            @db.Decimal(10, 8)
+  longitude        Decimal            @db.Decimal(11, 8)
+  pin_code         String             @db.VarChar(10)
+  city             String             @db.VarChar(100)
+  state            String             @db.VarChar(100)
+  country          String             @db.VarChar(100)
+  created_at       DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at       DateTime?          @default(now()) @db.Timestamp(6)
+  seller_addresses seller_addresses[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model seller_payment_settings {
+  payment_setting_id Int       @id @default(autoincrement())
+  seller_id          Int
+  payment_cycle      String?   @db.VarChar(20)
+  min_payout_amount  Decimal?  @default(100.0) @db.Decimal(10, 2)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+  sellers            sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model seller_settings {
+  setting_id              Int       @id @default(autoincrement())
+  seller_id               Int
+  auto_accept_orders      Boolean?  @default(true)
+  default_warranty_period Int?      @default(0)
+  return_window           Int?      @default(7)
+  shipping_provider       String?   @db.VarChar(100)
+  min_order_value         Decimal?  @default(0.0) @db.Decimal(10, 2)
+  created_at              DateTime? @default(now()) @db.Timestamp(6)
+  updated_at              DateTime? @default(now()) @db.Timestamp(6)
+  sellers                 sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sellers {
+  seller_id                Int                       @id @default(autoincrement())
+  business_name            String                    @db.VarChar(255)
+  business_type            String                    @db.VarChar(50)
+  email                    String                    @unique @db.VarChar(255)
+  phone                    String                    @db.VarChar(20)
+  alternate_phone          String?                   @db.VarChar(20)
+  gstin                    String?                   @unique @db.VarChar(15)
+  pan_card                 String                    @unique @db.VarChar(10)
+  legal_business_name      String                    @db.VarChar(255)
+  display_name             String                    @db.VarChar(100)
+  store_description        String?
+  logo_url                 String?                   @db.VarChar(255)
+  website_url              String?                   @db.VarChar(255)
+  primary_address_id       Int
+  status                   String                    @default("PENDING") @db.VarChar(20)
+  bank_account_number      String?                   @db.VarChar(50)
+  bank_ifsc_code           String?                   @db.VarChar(20)
+  bank_account_holder_name String?                   @db.VarChar(255)
+  commission_rate          Decimal?                  @default(0.0) @db.Decimal(5, 2)
+  seller_rating            Decimal?                  @db.Decimal(3, 2)
+  password_hash            String                    @db.VarChar(255)
+  created_at               DateTime?                 @default(now()) @db.Timestamp(6)
+  updated_at               DateTime?                 @default(now()) @db.Timestamp(6)
+  fish_listings            fish_listings[]
+  seller_documents         seller_documents[]
+  seller_metrics           seller_metrics?
+  seller_payment_settings  seller_payment_settings[]
+  seller_sales_history     seller_sales_history[]
+  seller_settings          seller_settings[]
+  seller_addresses         seller_addresses          @relation(fields: [primary_address_id], references: [address_id], onDelete: NoAction, onUpdate: NoAction)
+}

@@ -1,7 +1,8 @@
 import express from 'express'
+import { sellerCreateProfile } from '../../controllers/seller/profile.controller.js'
 
 const sellerProfileRouter = express.Router()
 
-sellerProfileRouter.post('')
+sellerProfileRouter.post('/create-profile', sellerCreateProfile)
 
 export default sellerProfileRouter

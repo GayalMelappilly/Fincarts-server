@@ -156,7 +156,6 @@ export const logout = async (req, res) => {
 };
 
 // Get current user
-
 export const getCurrentUser = async (req, res) => {
     try {
 
@@ -183,7 +182,7 @@ export const getCurrentUser = async (req, res) => {
             emailVerified: row.email_verified,
             phoneVerified: row.phone_verified,
             pointsBalance: row.points_balance,
-            profilePictureUrl: row.profile_picture_url,
+            profileImage: row.profile_picture_url,
             createdAt: row.user_created_at,
             updatedAt: row.user_updated_at,
             address: {
