@@ -1,6 +1,9 @@
 import { verifyAccessToken } from '../services/token.services.js';
 
 export const authenticate = (req, res, next) => {
+
+  console.log("ATUEH")
+
   try {
     // Get token from Authorization header
     const authHeader = req.headers.authorization;

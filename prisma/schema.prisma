@@ -37,7 +37,7 @@ model fish_categories {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model fish_listings {
   id                   String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  seller_id            Int
+  seller_id            String           @db.Uuid
   category_id          String           @db.Uuid
   name                 String           @db.VarChar(255)
   description          String
@@ -57,7 +57,7 @@ model fish_listings {
   view_count           Int?             @default(0)
   cart_items           cart_items[]
   fish_categories      fish_categories  @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                sellers          @relation(fields: [seller_id], references: [seller_id], onDelete: Cascade, onUpdate: NoAction)
+  users                sellers          @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   order_items          order_items[]
   reviews              reviews[]
   wishlist_items       wishlist_items[]
@@ -136,26 +136,26 @@ model reviews {
 
 model seller_metrics {
   id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  seller_id          Int       @unique
+  seller_id          String    @unique @db.Uuid
   total_sales        Decimal?  @default(0) @db.Decimal(12, 2)
   total_orders       Int?      @default(0)
   avg_rating         Decimal?  @default(0) @db.Decimal(3, 2)
   total_listings     Int?      @default(0)
   active_listings    Int?      @default(0)
   last_calculated_at DateTime? @default(now()) @db.Timestamptz(6)
-  users              sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: Cascade, onUpdate: NoAction)
+  users              sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 model seller_sales_history {
   id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  seller_id     Int
+  seller_id     String    @db.Uuid
   date          DateTime  @db.Date
   daily_sales   Decimal?  @default(0) @db.Decimal(10, 2)
   order_count   Int?      @default(0)
   new_customers Int?      @default(0)
   cancellations Int?      @default(0)
   created_at    DateTime? @default(now()) @db.Timestamptz(6)
-  users         sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: Cascade, onUpdate: NoAction)
+  users         sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([seller_id, date])
 }
@@ -248,33 +248,33 @@ model wishlists {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model seller_addresses {
-  address_id       Int              @id @default(autoincrement())
-  location_id      Int
-  address_line1    String           @db.VarChar(255)
-  address_line2    String?          @db.VarChar(255)
-  landmark         String?          @db.VarChar(255)
-  is_default       Boolean?         @default(false)
-  address_type     String?          @db.VarChar(50)
-  created_at       DateTime?        @default(now()) @db.Timestamp(6)
-  updated_at       DateTime?        @default(now()) @db.Timestamp(6)
-  seller_locations seller_locations @relation(fields: [location_id], references: [location_id], onDelete: NoAction, onUpdate: NoAction)
+  id             String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  location_id    String           @db.Uuid
+  address_line1  String           @db.VarChar(255)
+  address_line2  String?          @db.VarChar(255)
+  landmark       String?          @db.VarChar(255)
+  is_default     Boolean?         @default(false)
+  address_type   String?          @db.VarChar(50)
+  created_at     DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamp(6)
+  seller_locations seller_locations @relation(fields: [location_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sellers          sellers[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model seller_documents {
-  document_id         Int       @id @default(autoincrement())
-  seller_id           Int
+  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id           String    @db.Uuid
   document_type       String    @db.VarChar(50)
   document_url        String    @db.VarChar(255)
   verification_status String?   @default("PENDING") @db.VarChar(20)
   created_at          DateTime? @default(now()) @db.Timestamp(6)
   updated_at          DateTime? @default(now()) @db.Timestamp(6)
-  sellers             sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: NoAction, onUpdate: NoAction)
+  sellers             sellers   @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model seller_locations {
-  location_id      Int                @id @default(autoincrement())
+  id               String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   latitude         Decimal            @db.Decimal(10, 8)
   longitude        Decimal            @db.Decimal(11, 8)
   pin_code         String             @db.VarChar(10)
@@ -288,58 +288,58 @@ model seller_locations {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model seller_payment_settings {
-  payment_setting_id Int       @id @default(autoincrement())
-  seller_id          Int
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id          String    @db.Uuid
   payment_cycle      String?   @db.VarChar(20)
   min_payout_amount  Decimal?  @default(100.0) @db.Decimal(10, 2)
   created_at         DateTime? @default(now()) @db.Timestamp(6)
   updated_at         DateTime? @default(now()) @db.Timestamp(6)
-  sellers            sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: NoAction, onUpdate: NoAction)
+  sellers            sellers   @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model seller_settings {
-  setting_id              Int       @id @default(autoincrement())
-  seller_id               Int
-  auto_accept_orders      Boolean?  @default(true)
-  default_warranty_period Int?      @default(0)
-  return_window           Int?      @default(7)
-  shipping_provider       String?   @db.VarChar(100)
-  min_order_value         Decimal?  @default(0.0) @db.Decimal(10, 2)
+  id                     String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id              String    @db.Uuid
+  auto_accept_orders     Boolean?  @default(true)
+  default_warranty_period Int?     @default(0)
+  return_window           Int?     @default(7)
+  shipping_provider       String?  @db.VarChar(100)
+  min_order_value         Decimal? @default(0.0) @db.Decimal(10, 2)
   created_at              DateTime? @default(now()) @db.Timestamp(6)
   updated_at              DateTime? @default(now()) @db.Timestamp(6)
-  sellers                 sellers   @relation(fields: [seller_id], references: [seller_id], onDelete: NoAction, onUpdate: NoAction)
+  sellers                 sellers   @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model sellers {
-  seller_id                Int                       @id @default(autoincrement())
-  business_name            String                    @db.VarChar(255)
-  business_type            String                    @db.VarChar(50)
-  email                    String                    @unique @db.VarChar(255)
-  phone                    String                    @db.VarChar(20)
-  alternate_phone          String?                   @db.VarChar(20)
-  gstin                    String?                   @unique @db.VarChar(15)
-  pan_card                 String                    @unique @db.VarChar(10)
-  legal_business_name      String                    @db.VarChar(255)
-  display_name             String                    @db.VarChar(100)
-  store_description        String?
-  logo_url                 String?                   @db.VarChar(255)
-  website_url              String?                   @db.VarChar(255)
-  primary_address_id       Int
-  status                   String                    @default("PENDING") @db.VarChar(20)
-  bank_account_number      String?                   @db.VarChar(50)
-  bank_ifsc_code           String?                   @db.VarChar(20)
-  bank_account_holder_name String?                   @db.VarChar(255)
-  commission_rate          Decimal?                  @default(0.0) @db.Decimal(5, 2)
-  seller_rating            Decimal?                  @db.Decimal(3, 2)
-  password_hash            String                    @db.VarChar(255)
-  created_at               DateTime?                 @default(now()) @db.Timestamp(6)
-  updated_at               DateTime?                 @default(now()) @db.Timestamp(6)
-  fish_listings            fish_listings[]
-  seller_documents         seller_documents[]
-  seller_metrics           seller_metrics?
-  seller_payment_settings  seller_payment_settings[]
-  seller_sales_history     seller_sales_history[]
-  seller_settings          seller_settings[]
-  seller_addresses         seller_addresses          @relation(fields: [primary_address_id], references: [address_id], onDelete: NoAction, onUpdate: NoAction)
+  id                      String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_name           String                    @db.VarChar(255)
+  business_type           String                    @db.VarChar(50)
+  email                   String                    @unique @db.VarChar(255)
+  phone                   String                    @db.VarChar(20)
+  alternate_phone         String?                   @db.VarChar(20)
+  gstin                   String?                   @unique @db.VarChar(15)
+  pan_card                String                    @unique @db.VarChar(10)
+  legal_business_name     String                    @db.VarChar(255)
+  display_name            String                    @db.VarChar(100)
+  store_description       String?
+  logo_url                String?                   @db.VarChar(255)
+  website_url             String?                   @db.VarChar(255)
+  primary_address_id      String                    @db.Uuid
+  status                  String                    @default("PENDING") @db.VarChar(20)
+  bank_account_number     String?                   @db.VarChar(50)
+  bank_ifsc_code          String?                   @db.VarChar(20)
+  bank_account_holder_name String?                  @db.VarChar(255)
+  commission_rate         Decimal?                  @default(0.0) @db.Decimal(5, 2)
+  seller_rating           Decimal?                  @db.Decimal(3, 2)
+  password_hash           String                    @db.VarChar(255)
+  created_at              DateTime?                 @default(now()) @db.Timestamp(6)
+  updated_at              DateTime?                 @default(now()) @db.Timestamp(6)
+  fish_listings           fish_listings[]
+  seller_documents        seller_documents[]
+  seller_metrics          seller_metrics?
+  seller_payment_settings seller_payment_settings[]
+  seller_sales_history    seller_sales_history[]
+  seller_settings         seller_settings[]
+  seller_addresses        seller_addresses          @relation(fields: [primary_address_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }

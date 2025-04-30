@@ -2,6 +2,7 @@ import client from '../config/db.js'
 import { addressInsertQuery, deleteRefreshToken, findCurrentUserQuery, findRefreshTokenQuery, refreshTokenInsertQuery, userInsertQuery } from '../query/user.query.js'
 import { createAccessToken, createRefreshToken } from '../services/token.services.js'
 import { hashPassword } from '../utils/bcrypt.js'
+import prisma from '../utils/prisma.js'
 
 // Signup user
 export const signUpUser = async (req, res) => {
@@ -22,75 +23,84 @@ export const createProfile = async (req, res) => {
     const hashedPassword = await hashPassword(user.password)
 
     try {
-        const userResult = await client.query(userInsertQuery, [
-            user.email,
-            hashedPassword,
-            user.fullName,
-            user.phone,
-            'customer',
-            false,
-            true,
-            user.profileImage
-        ])
-
-        const userId = userResult.rows[0].id
-
-        try {
-            const addressResult = await client.query(addressInsertQuery, [
-                userId,
-                user.address.addressLine1,
-                user.address.addressLine2,
-                user.address.city,
-                user.address.state,
-                user.address.pincode,
-                user.address.country,
-                true
-            ])
-
-            const accessToken = createAccessToken(userId)
-            const refreshToken = createRefreshToken(userId)
-
-            const refreshTokenResult = await client.query(refreshTokenInsertQuery, [
-                userId,
-                refreshToken,
-                new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-            ])
-
-            res.cookie('refreshToken', refreshToken, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict',
-                maxAge: 7 * 24 * 60 * 60 * 1000
-            })
-
-            res.status(201).send({
-                success: true,
+        // Using Prisma transaction to ensure all operations succeed or fail together
+        const result = await prisma.$transaction(async (prisma) => {
+            // Create user
+            const createdUser = await prisma.users.create({
                 data: {
-                    name: user.FullName,
                     email: user.email,
-                    phone: user.phone,
-                    accessToken: accessToken,
-                    refreshToken: refreshToken
+                    password_hash: hashedPassword,
+                    full_name: user.fullName,
+                    phone_number: user.phone,
+                    user_type: 'customer',
+                    email_verified: false,
+                    phone_verified: true,
+                    profile_picture_url: user.profileImage,
                 }
-            })
+            });
 
-        } catch (err) {
-            console.log('Error inserting user address : ', err)
-            res.status(500).json({
-                success: false,
-                message: 'Error inserting user address'
-            })
-        }
+            // Create user address
+            const userAddress = await prisma.user_addresses.create({
+                data: {
+                    user_id: createdUser.id,
+                    address_line1: user.address.addressLine1,
+                    address_line2: user.address.addressLine2,
+                    city: user.address.city,
+                    state: user.address.state,
+                    postal_code: user.address.pincode,
+                    country: user.address.country,
+                    is_default: true
+                }
+            });
+
+            // Create access and refresh tokens
+            const accessToken = createAccessToken(createdUser.id);
+            const refreshToken = createRefreshToken(createdUser.id);
+
+            // Store refresh token
+            const refreshTokenRecord = await prisma.refresh_tokens.create({
+                data: {
+                    user_id: createdUser.id,
+                    token: refreshToken,
+                    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+                }
+            });
+
+            return {
+                user: createdUser,
+                address: userAddress,
+                accessToken,
+                refreshToken
+            };
+        });
+
+        // Set cookie and send response
+        res.cookie('refreshToken', result.refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        res.status(201).send({
+            success: true,
+            data: {
+                name: user.fullName,
+                email: user.email,
+                phone: user.phone,
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken
+            }
+        });
 
     } catch (err) {
-        console.log('Error inserting user : ', err)
+        console.log('Error creating profile: ', err);
         res.status(500).json({
             success: false,
-            message: 'Error inserting user'
-        })
-        return;
+            message: 'Error creating user profile'
+        });
     }
-}
+};
 
 // Refresh token
 export const refresh = async (req, res) => {
