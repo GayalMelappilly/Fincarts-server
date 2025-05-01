@@ -1,7 +1,8 @@
-import { hashPassword } from "../../utils/bcrypt.js";
+import { hashPassword, matchPassword } from "../../utils/bcrypt.js";
 import prisma from "../../utils/prisma.js";
 import { createAccessToken, createRefreshToken } from "../../services/token.services.js";
 
+// Create profile
 export const sellerCreateProfile = async (req, res) => {
     const sellerData = req.body;
     console.log("DATA: ", sellerData);
@@ -88,35 +89,9 @@ export const sellerCreateProfile = async (req, res) => {
                     seller_metrics: true
                 }
             });
-
-            const accessToken = createAccessToken(seller.id);
-            const refreshToken = createRefreshToken(seller.id);
-
-            await prisma.refresh_tokens.create({
-                data: {
-                    user_id: seller.id,
-                    token: refreshToken,
-                    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-                }
-            });
-
-            return {
-                accessToken,
-                refreshToken
-            }
-
         }, {
             maxWait: 5000, // Maximum time to wait for the transaction
             timeout: 10000 // Maximum time for the transaction to complete
-        });
-
-        console.log("SELLER RESULT : ", result)
-
-        res.cookie('sellerRefreshToken', result.refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
         res.status(201).send({
@@ -125,9 +100,7 @@ export const sellerCreateProfile = async (req, res) => {
                 name: sellerData.business_name,
                 email: sellerData.email,
                 phone: sellerData.phone,
-                displayName: sellerData.display_name,
-                accessToken: result.accessToken,
-                refreshToken: result.refreshToken
+                displayName: sellerData.display_name
             }
         });
 
@@ -141,6 +114,7 @@ export const sellerCreateProfile = async (req, res) => {
     }
 };
 
+// Get current seller
 export const getCurrentSeller = async (req, res) => {
     const sellerId = req.userId; // Assuming you have the seller ID from authentication middleware
     console.log("SELLER ID:", sellerId);
@@ -262,6 +236,8 @@ export const getCurrentSeller = async (req, res) => {
             updated_at: seller.updated_at
         };
 
+        console.log(formattedSellerData)
+
         return res.status(200).json({
             success: true,
             data: formattedSellerData,
@@ -277,3 +253,133 @@ export const getCurrentSeller = async (req, res) => {
         });
     }
 };
+
+// Login seller
+export const loginSeller = async (req, res) => {
+
+    const { emailOrMobile, password } = req.body;
+    
+    console.log("LOGIN SELLER", emailOrMobile, password)
+
+    if (!emailOrMobile || !password) {
+        return res.status(400).json({
+            success: false,
+            message: 'Identifier and password are required'
+        });
+    }
+
+    try {
+        // Find the seller by email or phone
+        const seller = await prisma.sellers.findFirst({
+            where: {
+                OR: [
+                    { email: emailOrMobile },
+                    { phone: emailOrMobile }
+                ]
+            }
+        });
+
+        console.log('seller : ',seller)
+        
+        if (!seller) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+
+        // Verify password
+        const isPasswordValid = await matchPassword(password, seller.password_hash);
+        if (!isPasswordValid) {
+            return res.status(401).json({
+                success: false, 
+                message: 'Invalid credentials'
+            });
+        }
+
+        // Generate tokens
+        const accessToken = createAccessToken(seller.id);
+        const refreshToken = createRefreshToken(seller.id);
+
+        // Store refresh token in database
+        await prisma.refresh_tokens.create({
+            data: {
+                user_id: seller.id,
+                token: refreshToken,
+                expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            }
+        });
+
+        // Set refresh token as HTTP-only cookie
+        res.cookie('sellerRefreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        // Send response with access token and basic seller info
+        res.status(200).json({
+            success: true,
+            data: {
+                name: seller.business_name,
+                email: seller.email,
+                phone: seller.phone,
+                displayName: seller.display_name,
+                accessToken,
+                refreshToken
+            }
+        });
+
+    } catch (error) {
+        console.error('Error during seller login:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Login failed due to server error'
+        });
+    }
+};
+
+// Logout seller
+export const logoutSeller = async (req, res) => {
+    try {
+        // Get the refresh token from cookies
+        const userId = req.userId;
+        
+        // If no refresh token in cookies, user is already logged out
+        if (!userId) {
+            return res.status(200).json({
+                success: true,
+                message: 'Already logged out'
+            });
+        }
+
+        // Delete the refresh token from database
+        await prisma.refresh_tokens.deleteMany({
+            where: {
+                user_id: userId
+            }
+        });
+
+        // Clear the refresh token cookie
+        res.clearCookie('sellerRefreshToken', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict'
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Logout successful'
+        });
+    } catch (error) {
+        console.error('Error during seller logout:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Logout failed due to server error'
+        });
+    }
+}
