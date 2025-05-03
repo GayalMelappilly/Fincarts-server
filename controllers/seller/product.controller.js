@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 // List product
 export const listProducts = async (req, res) => {
     try {
-        const sellerId = req.user.id;
+        const sellerId = req.userId;
         const { status, category, sort, page = 1, limit = 10 } = req.query;
 
         // Build the query filters
@@ -223,9 +223,13 @@ export const addProduct = async (req, res) => {
 
 // Edit product
 export const editProduct = async (req, res) => {
+
+    console.log('reached edit products')
+
     try {
-        const sellerId = req.user.id;
+        const sellerId = req.userId;
         const { id } = req.params;
+        console.log("Params id : ",req.body)
 
         // Verify product exists and belongs to seller
         const existingProduct = await prisma.fish_listings.findUnique({
@@ -246,16 +250,6 @@ export const editProduct = async (req, res) => {
             });
         }
 
-        // Validate request body
-        const { error, value } = validateFishListing(req.body);
-        if (error) {
-            return res.status(400).json({
-                success: false,
-                message: 'Validation error',
-                errors: error.details.map(detail => detail.message)
-            });
-        }
-
         const {
             category_id,
             name,
@@ -271,7 +265,7 @@ export const editProduct = async (req, res) => {
             care_instructions,
             dietary_requirements,
             listing_status
-        } = value;
+        } = req.body
 
         // Status change tracking for metrics update
         const statusChanged = listing_status && existingProduct.listing_status !== listing_status;
@@ -396,8 +390,10 @@ export const viewProduct = async (req, res) => {
 // Delete product
 export const deleteProduct = async (req, res) => {
     try {
-        const sellerId = req.user.id;
+        const sellerId = req.userId;
         const { id } = req.params;
+
+        console.log(sellerId, id)
 
         // Verify product exists and belongs to seller
         const existingProduct = await prisma.fish_listings.findUnique({
