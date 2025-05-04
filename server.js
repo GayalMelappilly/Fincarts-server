@@ -12,5 +12,5 @@ server.listen(5000, async () => {
     }).catch((err) => {
         console.log('Database connection error : ', err)
     })
-    console.log(`Server running on port ${PORT}`)
+    console.log(`Server running on port 5000`)
 })
