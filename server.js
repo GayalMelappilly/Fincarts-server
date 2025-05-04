@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 5000
 
 const server = http.createServer(app)
 
-server.listen(5000, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
     await client.connect().then(() => {
         console.log('Database connected successfully')
     }).catch((err) => {
