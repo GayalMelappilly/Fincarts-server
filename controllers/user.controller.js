@@ -211,7 +211,7 @@ export const getCurrentUser = async (req, res) => {
             }
         };
 
-        res.status(201).json({user});
+        res.status(201).json({ user });
         return;
     } catch (error) {
         console.log("REACHED")
@@ -220,3 +220,176 @@ export const getCurrentUser = async (req, res) => {
         return;
     }
 }
+
+// Get fish list
+export const getFishList = async (req, res) => {
+    console.log('reached fish list');
+
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            sort = "created_at",
+            order = "desc",
+            category,
+            minPrice,
+            maxPrice,
+            search,
+            featured,
+            inStock,
+            color,
+            size,
+            breed,
+        } = req.query;
+
+        // Parse pagination parameters
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+        const skip = (pageNum - 1) * limitNum;
+
+        // Build filter conditions
+        const where = {};
+
+        // Text search in name and description
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: 'insensitive' } },
+                { description: { contains: search, mode: 'insensitive' } },
+            ];
+        }
+
+        // Category filter - validate UUID format
+        // if (category) {
+        //     // UUID validation regex pattern
+        //     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            
+        //     if (uuidPattern.test(category)) {
+        //         where.category_id = category;
+        //     } else {
+        //         console.warn(`Invalid UUID format for category: ${category}, skipping filter`);
+        //         // Option 1: Skip this filter
+        //         // Option 2: Return error
+        //         // return res.status(400).json({ message: "Invalid category ID format" });
+        //     }
+        // }
+
+        // Price range filter
+        if (minPrice || maxPrice) {
+            where.price = {};
+            if (minPrice) where.price.gte = parseFloat(minPrice);
+            if (maxPrice) where.price.lte = parseFloat(maxPrice);
+        }
+
+        // Featured filter
+        if (featured === 'true') {
+            where.is_featured = true;
+        }
+
+        // In Stock filter
+        if (inStock === 'true') {
+            where.quantity_available = { gt: 0 };
+        }
+
+        // Color filter
+        if (color) {
+            where.color = color;
+        }
+
+        // Size filter
+        if (size) {
+            where.size = size;
+        }
+
+        // Breed filter
+        if (breed) {
+            where.breed = breed;
+        }
+
+        // Status filter - only return active listings by default
+        where.listing_status = "active";
+
+        // Fetch fish listings with pagination and filtering
+        const [fishListings, totalCount] = await Promise.all([
+            prisma.fish_listings.findMany({
+                where,
+                skip,
+                take: limitNum,
+                orderBy: { [sort]: order.toLowerCase() },
+                include: {
+                    fish_categories: {
+                        select: {
+                            id: true,
+                            name: true,
+                            description: true,
+                            image_url: true,
+                        },
+                    },
+                    reviews: {
+                        select: {
+                            rating: true,
+                        },
+                    },
+                    users: {
+                        select: {
+                            id: true,
+                            display_name: true,
+                            logo_url: true,
+                        },
+                    },
+                },
+            }),
+            prisma.fish_listings.count({ where }),
+        ]);
+
+        // Calculate average rating for each listing
+        const enhancedListings = fishListings.map((listing) => {
+            const avgRating = listing.reviews.length > 0
+                ? listing.reviews.reduce((sum, review) => sum + review.rating, 0) / listing.reviews.length
+                : null;
+
+            return {
+                id: listing.id,
+                name: listing.name,
+                description: listing.description,
+                price: listing.price,
+                quantityAvailable: listing.quantity_available,
+                images: listing.images,
+                age: listing.age,
+                size: listing.size,
+                color: listing.color,
+                breed: listing.breed,
+                isFeatured: listing.is_featured,
+                createdAt: listing.created_at,
+                updatedAt: listing.updated_at,
+                listingStatus: listing.listing_status,
+                careInstructions: listing.care_instructions,
+                dietaryRequirements: listing.dietary_requirements,
+                viewCount: listing.view_count,
+                category: listing.fish_categories,
+                avgRating,
+                reviewCount: listing.reviews.length,
+                seller: listing.users,
+            };
+        });
+
+        // Pagination metadata
+        const totalPages = Math.ceil(totalCount / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        res.status(200).json({
+            fishListings: enhancedListings,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                totalItems: totalCount,
+                totalPages,
+                hasNextPage,
+                hasPrevPage,
+            },
+        });
+    } catch (error) {
+        console.error("Error fetching fish listings:", error);
+        res.status(500).json({ message: "Server error while fetching fish listings" });
+    }
+};
