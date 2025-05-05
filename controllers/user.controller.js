@@ -262,7 +262,7 @@ export const getFishList = async (req, res) => {
         // if (category) {
         //     // UUID validation regex pattern
         //     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            
+
         //     if (uuidPattern.test(category)) {
         //         where.category_id = category;
         //     } else {
@@ -334,6 +334,16 @@ export const getFishList = async (req, res) => {
                             id: true,
                             display_name: true,
                             logo_url: true,
+                            seller_addresses: {
+                                select: {
+                                    seller_locations: {
+                                        select: {
+                                            city: true,
+                                            state: true,
+                                        }
+                                    }
+                                }
+                            }
                         },
                     },
                 },
@@ -393,3 +403,201 @@ export const getFishList = async (req, res) => {
         res.status(500).json({ message: "Server error while fetching fish listings" });
     }
 };
+
+export const getSellerProfile = async (req, res) => {
+
+    const sellerId = req.params.id;
+
+    try {
+        // Fetch seller with related data
+        const seller = await prisma.sellers.findUnique({
+            where: {
+                id: sellerId
+            },
+            select: {
+                id: true,
+                business_name: true,
+                business_type: true,
+                // email: true,
+                // phone: true,
+                // alternate_phone: true,
+                display_name: true,
+                store_description: true,
+                logo_url: true,
+                website_url: true,
+                status: true,
+                seller_rating: true,
+                created_at: true,
+
+                // Include seller metrics
+                seller_metrics: {
+                    select: {
+                        total_sales: true,
+                        total_orders: true,
+                        avg_rating: true,
+                        total_listings: true,
+                        active_listings: true,
+                        last_calculated_at: true
+                    }
+                },
+
+                // Include seller settings
+                seller_settings: {
+                    select: {
+                        auto_accept_orders: true,
+                        default_warranty_period: true,
+                        return_window: true,
+                        shipping_provider: true,
+                        min_order_value: true
+                    }
+                },
+
+                // Include seller address information
+                seller_addresses: {
+                    select: {
+                        address_line1: true,
+                        address_line2: true,
+                        landmark: true,
+                        is_default: true,
+                        address_type: true,
+                        seller_locations: {
+                            select: {
+                                city: true,
+                                state: true,
+                                country: true,
+                                pin_code: true
+                            }
+                        }
+                    }
+                },
+
+                // Include fish listings
+                fish_listings: {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        price: true,
+                        quantity_available: true,
+                        images: true,
+                        age: true,
+                        size: true,
+                        color: true,
+                        breed: true,
+                        is_featured: true,
+                        created_at: true,
+                        updated_at: true,
+                        listing_status: true,
+                        care_instructions: true,
+                        dietary_requirements: true,
+                        view_count: true,
+
+                        // Include category information
+                        fish_categories: {
+                            select: {
+                                name: true,
+                                description: true,
+                                image_url: true
+                            }
+                        },
+
+                        // Include review summary
+                        reviews: {
+                            select: {
+                                rating: true
+                            }
+                        }
+                    },
+                    where: {
+                        listing_status: "active" // Only active listings
+                    }
+                }
+            }
+        });
+
+        if (!seller) {
+            console.log('Get seller profile : seller not found')
+            res.status(500).json({
+                success: false,
+                message: 'Seller not found'
+            })
+        }
+
+        // Calculate average rating for each fish listing
+        const enhancedListings = seller.fish_listings.map(listing => {
+            // Calculate average rating if reviews exist
+            const reviewCount = listing.reviews.length;
+            let avgRating = 0;
+
+            if (reviewCount > 0) {
+                const totalRating = listing.reviews.reduce((sum, review) => sum + review.rating, 0);
+                avgRating = totalRating / reviewCount;
+            }
+
+            // Remove raw reviews and add calculated metrics
+            const { reviews, ...listingData } = listing;
+
+            return {
+                ...listingData,
+                review_count: reviewCount,
+                average_rating: avgRating
+            };
+        });
+
+        // Format the response
+        const formattedResponse = {
+            seller: {
+                id: seller.id,
+                business_name: seller.business_name,
+                business_type: seller.business_type,
+                display_name: seller.display_name,
+                store_description: seller.store_description,
+                logo_url: seller.logo_url,
+                website_url: seller.website_url,
+                status: seller.status,
+                seller_rating: seller.seller_rating,
+                joined_date: seller.created_at,
+
+                // Location information
+                location: seller.seller_addresses ? {
+                    city: seller.seller_addresses.seller_locations?.city,
+                    state: seller.seller_addresses.seller_locations?.state,
+                    country: seller.seller_addresses.seller_locations?.country
+                } : null,
+
+                // Business metrics
+                metrics: seller.seller_metrics || {
+                    total_sales: 0,
+                    total_orders: 0,
+                    avg_rating: 0,
+                    total_listings: 0,
+                    active_listings: 0
+                },
+
+                // Shop policies
+                policies: {
+                    auto_accept_orders: seller.seller_settings?.[0]?.auto_accept_orders || true,
+                    warranty_period_days: seller.seller_settings?.[0]?.default_warranty_period || 0,
+                    return_window_days: seller.seller_settings?.[0]?.return_window || 7,
+                    shipping_provider: seller.seller_settings?.[0]?.shipping_provider || "Standard",
+                    min_order_value: seller.seller_settings?.[0]?.min_order_value || 0
+                }
+            },
+            listings: enhancedListings
+        };
+
+        res.status(200).json({
+            success: true,
+            data: formattedResponse
+        })
+        
+        return;
+
+    } catch (error) {
+        console.error("Error fetching seller profile:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching seller profile'
+        })
+    }
+}
