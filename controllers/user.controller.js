@@ -141,29 +141,42 @@ export const refresh = async (req, res) => {
 };
 
 // Logout user
-export const logout = async (req, res) => {
+export const logoutUser = async (req, res) => {
+
     try {
         const refreshToken = req.cookies.refreshToken;
 
         if (refreshToken) {
-            const result = await client.query(deleteRefreshToken, [
-                refreshToken
-            ])
-        }
+            // Delete the refresh token using Prisma
+            await prisma.refresh_tokens.deleteMany({
+                where: {
+                    token: refreshToken
+                }
+            });
 
-        res.clearCookie('refreshToken');
-        res.status(201).json({
-            success: true,
-            message: 'Logged out successfully'
-        });
+            // Clear the cookie
+            res.clearCookie('refreshToken');
+
+            return res.status(200).json({
+                success: true,
+                message: 'Logged out successfully'
+            });
+        } else {
+            return res.status(401).json({
+                success: false,
+                message: 'No refresh token found'
+            });
+        }
     } catch (error) {
-        console.error('Logout error:', error);
-        res.status(500).json({
-            sucess: false,
-            message: 'Server error'
+        console.error('Error during logout:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'An error occurred during logout',
+            error: error.message
         });
     }
 };
+
 
 // Get current user
 export const getCurrentUser = async (req, res) => {
@@ -173,45 +186,164 @@ export const getCurrentUser = async (req, res) => {
 
         console.log("USER ID : ", userId)
 
-        const result = await client.query(findCurrentUserQuery, [
-            userId
-        ])
+        const user = await prisma.users.findUnique({
+            where: {
+                id: userId,
+            },
+            select: {
+                id: true,
+                email: true,
+                full_name: true,
+                phone_number: true,
+                user_type: true,
+                created_at: true,
+                updated_at: true,
+                email_verified: true,
+                phone_verified: true,
+                points_balance: true,
+                profile_picture_url: true,
+                // Related entities
+                user_addresses: {
+                    select: {
+                        id: true,
+                        address_line1: true,
+                        address_line2: true,
+                        city: true,
+                        state: true,
+                        postal_code: true,
+                        country: true,
+                        is_default: true,
+                        latitude: true,
+                        longitude: true,
+                    },
+                },
+                shopping_carts: {
+                    where: {
+                        is_active: true,
+                    },
+                    select: {
+                        id: true,
+                        created_at: true,
+                        updated_at: true,
+                        cart_items: {
+                            select: {
+                                id: true,
+                                quantity: true,
+                                added_at: true,
+                                fish_listing_id: true,
+                                fish_listings: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        description: true,
+                                        price: true,
+                                        images: true,
+                                        size: true,
+                                        color: true,
+                                        breed: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                orders: {
+                    select: {
+                        id: true,
+                        total_amount: true,
+                        status: true,
+                        created_at: true,
+                        updated_at: true,
+                        points_earned: true,
+                        points_used: true,
+                        discount_amount: true,
+                        coupon_code: true,
+                        order_notes: true,
+                        shipping_details: {
+                            select: {
+                                carrier: true,
+                                tracking_number: true,
+                                shipping_cost: true,
+                                estimated_delivery: true,
+                                actual_delivery: true,
+                                shipping_method: true,
+                            },
+                        },
+                        order_items: {
+                            select: {
+                                id: true,
+                                quantity: true,
+                                unit_price: true,
+                                total_price: true,
+                                fish_listing_id: true,
+                                fish_listings: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        description: true,
+                                        images: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                wishlists: {
+                    select: {
+                        id: true,
+                        name: true,
+                        is_public: true,
+                        created_at: true,
+                        updated_at: true,
+                        wishlist_items: {
+                            select: {
+                                id: true,
+                                added_at: true,
+                                notes: true,
+                                fish_listing_id: true,
+                                fish_listings: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        description: true,
+                                        price: true,
+                                        images: true,
+                                        size: true,
+                                        color: true,
+                                        breed: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                reviews: {
+                    select: {
+                        id: true,
+                        rating: true,
+                        review_text: true,
+                        review_images: true,
+                        created_at: true,
+                        is_verified_purchase: true,
+                        fish_listing_id: true,
+                        fish_listings: {
+                            select: {
+                                id: true,
+                                name: true,
+                                images: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
 
-        if (!result) {
+
+        if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const row = result.rows[0]
-
-        const user = {
-            id: row.user_id,
-            fullName: row.full_name,
-            email: row.email,
-            phoneNumber: row.phone_number,
-            userType: row.user_type,
-            emailVerified: row.email_verified,
-            phoneVerified: row.phone_verified,
-            pointsBalance: row.points_balance,
-            profileImage: row.profile_picture_url,
-            createdAt: row.user_created_at,
-            updatedAt: row.user_updated_at,
-            address: {
-                id: row.address_id,
-                line1: row.address_line1,
-                line2: row.address_line2,
-                city: row.city,
-                state: row.state,
-                postalCode: row.postal_code,
-                country: row.country,
-                isDefault: row.is_default,
-                latitude: row.latitude,
-                longitude: row.longitude,
-                createdAt: row.address_created_at,
-                updatedAt: row.address_updated_at,
-            }
-        };
-
-        res.status(201).json({ user });
+        res.status(201).json(user);
         return;
     } catch (error) {
         console.log("REACHED")
@@ -590,7 +722,7 @@ export const getSellerProfile = async (req, res) => {
             success: true,
             data: formattedResponse
         })
-        
+
         return;
 
     } catch (error) {
