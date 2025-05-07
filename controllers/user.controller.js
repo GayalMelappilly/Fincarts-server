@@ -1,7 +1,7 @@
 import client from '../config/db.js'
 import { addressInsertQuery, deleteRefreshToken, findCurrentUserQuery, findRefreshTokenQuery, refreshTokenInsertQuery, userInsertQuery } from '../query/user.query.js'
 import { createAccessToken, createRefreshToken } from '../services/token.services.js'
-import { hashPassword } from '../utils/bcrypt.js'
+import { hashPassword, matchPassword } from '../utils/bcrypt.js'
 import prisma from '../utils/prisma.js'
 
 // Signup user
@@ -177,6 +177,91 @@ export const logoutUser = async (req, res) => {
     }
 };
 
+// Login user
+export const loginUser = async (req, res) => {
+    const { identifier, password } = req.body;
+    
+    console.log("LOGIN USER", identifier, password);
+
+    if (!identifier || !password) {
+        return res.status(400).json({
+            success: false,
+            message: 'Identifier and password are required'
+        });
+    }
+
+    try {
+        // Find the user by email or phone number
+        const user = await prisma.users.findFirst({
+            where: {
+                OR: [
+                    { email: identifier },
+                    { phone_number: identifier }
+                ]
+            }
+        });
+
+        console.log('user : ', user);
+        
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+        // Verify password
+        const isPasswordValid = await matchPassword(password, user.password_hash);
+        if (!isPasswordValid) {
+            return res.status(401).json({
+                success: false, 
+                message: 'Invalid credentials'
+            });
+        }
+
+        // Generate tokens
+        const accessToken = createAccessToken(user.id);
+        const refreshToken = createRefreshToken(user.id);
+
+        // Store refresh token in database
+        await prisma.refresh_tokens.create({
+            data: {
+                user_id: user.id,
+                token: refreshToken,
+                expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            }
+        });
+
+        // Set refresh token as HTTP-only cookie
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        // Send response with access token and basic user info
+        res.status(200).json({
+            success: true,
+            data: {
+                name: user.full_name,
+                email: user.email,
+                phone: user.phone_number,
+                userType: user.user_type,
+                accessToken,
+                refreshToken
+            }
+        });
+
+    } catch (error) {
+        console.error('Error during user login:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Login failed due to server error'
+        });
+    }
+};
 
 // Get current user
 export const getCurrentUser = async (req, res) => {
