@@ -1,8 +1,11 @@
 import client from '../config/db.js'
 import { addressInsertQuery, deleteRefreshToken, findCurrentUserQuery, findRefreshTokenQuery, refreshTokenInsertQuery, userInsertQuery } from '../query/user.query.js'
-import { createAccessToken, createRefreshToken } from '../services/token.services.js'
+import { createAccessToken, createEmailVerificationToken, createRefreshToken, verifyEmailVerificationToken } from '../services/token.services.js'
 import { hashPassword, matchPassword } from '../utils/bcrypt.js'
+import { generateVerificationToken } from '../utils/generateVerificationCode.js'
 import prisma from '../utils/prisma.js'
+import { sendVerificationEmail } from '../utils/sendMails.js'
+import { transformToCamelCase } from '../utils/toCamelCase.js'
 
 // Signup user
 export const signUpUser = async (req, res) => {
@@ -14,6 +17,80 @@ export const signUpUser = async (req, res) => {
     })
     return;
 }
+
+// Verify email
+export const verifyEmail = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email is required' });
+        }
+
+        const user = await prisma.users.findUnique({
+            where: {
+                email: email
+            }
+        });
+
+        console.log("IF USER : ",user)
+
+        if (user){
+            return res.status(500).json({success: false, message: 'User already exists. Please login.'})
+        } 
+
+        // Generate a verification code for the email display
+        const verificationCode = generateVerificationToken();
+
+        // Create JWT token with user info and verification code
+        const verificationToken = createEmailVerificationToken(email, verificationCode)
+
+        // Send verification email
+        await sendVerificationEmail(email, verificationCode, verificationToken, 'User');
+
+        return res.status(200).json({
+            success: true,
+            token: verificationToken,
+            message: 'Verification email sent successfully'
+        });
+
+    } catch (error) {
+        console.error('Email verification error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error sending verification email',
+            error: error.message
+        });
+    }
+}
+
+export const confirmVerificationCode = async (req, res) => {
+
+    const { token, code } = req.body;
+    console.log(token, code)
+
+    if (!token && !code) {
+        return res.status(400).json({ success: false, message: 'Verification token or code is required' });
+    }
+
+    // If token provided (from email link click)
+    try {
+        const decodedToken = verifyEmailVerificationToken(token);
+
+        console.log(decodedToken.code, code)
+
+        if (decodedToken.code !== code) {
+            console.log('invalid code')
+            res.status(400).json({ success: false, message: 'Invalid verification code' })
+            return
+        }
+
+        res.status(200).json({ success: true, message: 'User signup successfully' })
+
+    } catch (error) {
+        return res.status(400).json({ success: false, message: 'Invalid or expired verification token' });
+    }
+};
 
 // Create user profile
 export const createProfile = async (req, res) => {
@@ -180,7 +257,7 @@ export const logoutUser = async (req, res) => {
 // Login user
 export const loginUser = async (req, res) => {
     const { identifier, password } = req.body;
-    
+
     console.log("LOGIN USER", identifier, password);
 
     if (!identifier || !password) {
@@ -202,7 +279,7 @@ export const loginUser = async (req, res) => {
         });
 
         console.log('user : ', user);
-        
+
         if (!user) {
             return res.status(401).json({
                 success: false,
@@ -214,7 +291,7 @@ export const loginUser = async (req, res) => {
         const isPasswordValid = await matchPassword(password, user.password_hash);
         if (!isPasswordValid) {
             return res.status(401).json({
-                success: false, 
+                success: false,
                 message: 'Invalid credentials'
             });
         }
@@ -271,7 +348,7 @@ export const getCurrentUser = async (req, res) => {
 
         console.log("USER ID : ", userId)
 
-        const user = await prisma.users.findUnique({
+        const data = await prisma.users.findUnique({
             where: {
                 id: userId,
             },
@@ -423,10 +500,11 @@ export const getCurrentUser = async (req, res) => {
             },
         });
 
-
-        if (!user) {
+        if (!data) {
             return res.status(404).json({ message: 'User not found' });
         }
+
+        const user = transformToCamelCase(data)
 
         res.status(201).json(user);
         return;
