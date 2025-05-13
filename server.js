@@ -3,8 +3,8 @@ import fs from 'fs'
 import { app } from './app.js'
 import client from './config/db.js'
 
-const keyPath = process.env.NODE_ENV === 'production' ? `/home/ec2-user/ssl/server.key` : './ssl/server.key'
-const certPath = process.env.NODE_ENV === 'production' ? `/home/ec2-user/ssl/server.cert` : './ssl/server.cert'
+const keyPath = process.env.KEY_PATH
+const certPath = process.env.CERT_PATH
 
 const options = {
   key: fs.readFileSync(keyPath),
