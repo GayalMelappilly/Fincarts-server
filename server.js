@@ -6,13 +6,11 @@ import client from './config/db.js'
 const keyPath = process.env.NODE_ENV === 'production' ? `/home/ec2-user/ssl/server.key` : './ssl/server.key'
 const certPath = process.env.NODE_ENV === 'production' ? `/home/ec2-user/ssl/server.cert` : './ssl/server.cert'
 
-// HTTPS configuration
 const options = {
   key: fs.readFileSync(keyPath),
   cert: fs.readFileSync(certPath)
 };
 
-// Create HTTPS server instead of HTTP
 const server = https.createServer(options, app)
 
 server.listen(5000, async () => {
