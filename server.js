@@ -6,6 +6,13 @@ import client from './config/db.js'
 const keyPath = process.env.KEY_PATH
 const certPath = process.env.CERT_PATH
 
+console.log("KEY PATH : ",keyPath, "CERT PATH : ",certPath)
+
+if (!keyPath || !certPath) {
+  throw new Error('KEY_PATH or CERT_PATH is not defined in environment');
+}
+
+
 const options = {
   key: fs.readFileSync(keyPath),
   cert: fs.readFileSync(certPath)
