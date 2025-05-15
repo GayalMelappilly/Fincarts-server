@@ -311,12 +311,15 @@ export const loginUser = async (req, res) => {
             }
         });
 
+        console.log('type : ',process.env.NODE_ENV)
+
         // Set refresh token as HTTP-only cookie
         res.cookie('refreshToken', refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            path: '/', 
         });
 
         // Send response with access token and basic user info
