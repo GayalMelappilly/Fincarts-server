@@ -1,3 +1,4 @@
+import http from 'http'
 import https from 'https'
 import fs from 'fs'
 import { app } from './app.js'
@@ -6,19 +7,16 @@ import client from './config/db.js'
 const keyPath = process.env.KEY_PATH
 const certPath = process.env.CERT_PATH
 
-console.log("KEY PATH : ",keyPath, "CERT PATH : ",certPath)
-
 if (!keyPath || !certPath) {
   throw new Error('KEY_PATH or CERT_PATH is not defined in environment');
 }
-
 
 const options = {
   key: fs.readFileSync(keyPath),
   cert: fs.readFileSync(certPath)
 };
 
-const server = https.createServer(options, app)
+const server = process.env.NODE_ENV === 'production' ? https.createServer(options, app) : http.createServer(app)
 
 server.listen(5000, async () => {
     await client.connect().then(() => {
@@ -26,5 +24,5 @@ server.listen(5000, async () => {
     }).catch((err) => {
         console.log('Database connection error : ', err)
     })
-    console.log(`HTTPS Server running on port 5000`)
+    console.log(`Server running on port 5000`)
 })

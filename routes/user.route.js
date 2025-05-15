@@ -10,7 +10,7 @@ userRouter.post('/confirm-verification-code', confirmVerificationCode)
 userRouter.post('/create-profile', createProfile)
 userRouter.post('/refresh', refresh)
 userRouter.get('/get-current-user', authenticate, getCurrentUser)
-userRouter.get('/logout', logoutUser)
+userRouter.get('/logout', authenticate, logoutUser)
 userRouter.post('/login', loginUser)
 
 userRouter.get('/fish-list', getFishList);

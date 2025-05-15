@@ -223,6 +223,8 @@ export const logoutUser = async (req, res) => {
     try {
         const refreshToken = req.cookies.refreshToken;
 
+        console.log('logout refresh token : ',refreshToken)
+
         if (refreshToken) {
             // Delete the refresh token using Prisma
             await prisma.refresh_tokens.deleteMany({
@@ -342,6 +344,7 @@ export const loginUser = async (req, res) => {
 
 // Get current user
 export const getCurrentUser = async (req, res) => {
+
     try {
 
         const userId = req.userId
