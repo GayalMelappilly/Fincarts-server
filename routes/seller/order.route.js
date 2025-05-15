@@ -2,6 +2,6 @@ import express from 'express'
 
 const sellerOrderRouter = express.Router()
 
-sellerOrderRouter.post('')
+// sellerOrderRouter.post('')
 
 export default sellerOrderRouter
