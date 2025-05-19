@@ -235,6 +235,7 @@ export const logoutUser = async (req, res) => {
 
             // Clear the cookie
             res.clearCookie('refreshToken');
+            res.clearCookie('accessToken')
 
             return res.status(200).json({
                 success: true,
@@ -507,7 +508,10 @@ export const getCurrentUser = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        
         const user = transformToCamelCase(data)
+        
+        // console.log('user data :',user.shoppingCarts[0].cartItems[0])
 
         res.status(201).json(user);
         return;

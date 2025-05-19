@@ -2,7 +2,7 @@ import { verifyAccessToken } from '../services/token.services.js';
 
 export const authenticate = (req, res, next) => {
 
-  console.log("ATUEH")
+  console.log("Authenicate")
 
   try {
     // Get token from Authorization header
@@ -15,8 +15,6 @@ export const authenticate = (req, res, next) => {
     
     // Verify token
     const decoded = verifyAccessToken(token);
-
-    console.log("DECODED : ",decoded)
     
     // Add user ID to request
     req.userId = decoded.userId;
