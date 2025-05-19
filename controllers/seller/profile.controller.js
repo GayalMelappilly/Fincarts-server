@@ -740,3 +740,195 @@ export const logoutSeller = async (req, res) => {
         });
     }
 }
+
+// Update seller profile
+export const updateProfile = async (req, res) => {
+    try {
+        const sellerId = req.params.sellerId || req.body.id;
+
+        if (!sellerId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Seller ID is required'
+            });
+        }
+
+        const {
+            businessInfo,
+            contactInfo,
+            address,
+            paymentSettings
+        } = req.body;
+
+        // Validate required fields
+        if (!businessInfo || !contactInfo) {
+            return res.status(400).json({
+                success: false,
+                message: 'Business info and contact info are required'
+            });
+        }
+
+        // Perform update in a transaction to ensure data consistency
+        const updatedSeller = await prisma.$transaction(async (tx) => {
+            // 1. Update main seller record
+            const updatedSellerData = await tx.sellers.update({
+                where: { id: sellerId },
+                data: {
+                    business_name: businessInfo.businessName,
+                    legal_business_name: businessInfo.legalBusinessName,
+                    display_name: businessInfo.displayName,
+                    business_type: businessInfo.businessType,
+                    store_description: businessInfo.storeDescription,
+                    logo_url: businessInfo.logoUrl,
+                    website_url: businessInfo.websiteUrl,
+                    gstin: businessInfo.gstin,
+                    status: businessInfo.status,
+                    // Contact info
+                    email: contactInfo.email,
+                    phone: contactInfo.phone,
+                    alternate_phone: contactInfo.alternatePhone,
+                    // Update commission rate if provided
+                    commission_rate: req.body.commissionRate ?
+                        parseFloat(req.body.commissionRate) : undefined,
+                    updated_at: new Date()
+                }
+            });
+
+            // 2. Update or create address if provided
+            if (address) {
+                // Get the seller record with address information
+                const sellerWithAddress = await tx.sellers.findUnique({
+                    where: { id: sellerId },
+                    select: { primary_address_id: true }
+                });
+
+                let existingAddress = null;
+                if (sellerWithAddress?.primary_address_id) {
+                    existingAddress = await tx.seller_addresses.findUnique({
+                        where: { id: sellerWithAddress.primary_address_id }
+                    });
+                }
+
+                // Check if we need to handle location data
+                let locationId = null;
+                if (address.location && Object.keys(address.location).length > 0) {
+                    const locationData = {
+                        city: address.location.city || '',
+                        state: address.location.state || '',
+                        country: address.location.country || '',
+                        pin_code: address.location.pinCode || '',
+                        latitude: address.location.latitude ?
+                            parseFloat(address.location.latitude) : 0,
+                        longitude: address.location.longitude ?
+                            parseFloat(address.location.longitude) : 0,
+                    };
+
+                    if (existingAddress?.location_id) {
+                        // Update existing location
+                        const location = await tx.seller_locations.update({
+                            where: { id: existingAddress.location_id },
+                            data: locationData
+                        });
+                        locationId = location.id;
+                    } else {
+                        // Create new location
+                        const location = await tx.seller_locations.create({
+                            data: locationData
+                        });
+                        locationId = location.id;
+                    }
+                }
+
+                // Update or create address
+                if (existingAddress) {
+                    await tx.seller_addresses.update({
+                        where: { id: existingAddress.id },
+                        data: {
+                            address_line1: address.addressLine1,
+                            address_line2: address.addressLine2,
+                            landmark: address.landmark,
+                            address_type: address.addressType,
+                            location_id: locationId || existingAddress.location_id,
+                            updated_at: new Date()
+                        }
+                    });
+                } else {
+                    // Create new address
+                    const newAddress = await tx.seller_addresses.create({
+                        data: {
+                            address_line1: address.addressLine1,
+                            address_line2: address.addressLine2,
+                            landmark: address.landmark,
+                            address_type: address.addressType || 'BUSINESS',
+                            is_default: true,
+                            location_id: locationId
+                        }
+                    });
+
+                    // Update seller with primary address
+                    await tx.sellers.update({
+                        where: { id: sellerId },
+                        data: { primary_address_id: newAddress.id }
+                    });
+                }
+            }
+
+            // 3. Update payment settings if provided
+            if (paymentSettings && Object.keys(paymentSettings).length > 0) {
+                // Check if there are existing payment settings
+                const existingSettings = await tx.seller_payment_settings.findFirst({
+                    where: { seller_id: sellerId }
+                });
+
+                if (existingSettings) {
+                    await tx.seller_payment_settings.update({
+                        where: { id: existingSettings.id },
+                        data: {
+                            payment_cycle: paymentSettings.paymentCycle,
+                            min_payout_amount: paymentSettings.minPayoutAmount ?
+                                parseFloat(paymentSettings.minPayoutAmount) : undefined,
+                            updated_at: new Date()
+                        }
+                    });
+                } else {
+                    await tx.seller_payment_settings.create({
+                        data: {
+                            seller_id: sellerId,
+                            payment_cycle: paymentSettings.paymentCycle || 'MONTHLY',
+                            min_payout_amount: paymentSettings.minPayoutAmount ?
+                                parseFloat(paymentSettings.minPayoutAmount) : 100.0
+                        }
+                    });
+                }
+            }
+
+            // Return the updated seller
+            return updatedSellerData;
+        });
+
+        // Fetch the complete updated seller with relations for response
+        const completeSeller = await prisma.sellers.findUnique({
+            where: { id: sellerId },
+            include: {
+                seller_addresses: {
+                    where: { id: updatedSeller.primary_address_id || undefined }
+                },
+                seller_payment_settings: true,
+                seller_metrics: true
+            }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Seller details updated successfully',
+            data: completeSeller
+        });
+    } catch (error) {
+        console.error('Error updating seller details:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update seller details',
+            error: error.message
+        });
+    }
+}
