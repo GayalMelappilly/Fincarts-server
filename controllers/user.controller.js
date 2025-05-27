@@ -33,8 +33,6 @@ export const verifyEmail = async (req, res) => {
             }
         });
 
-        console.log("IF USER : ",user)
-
         if (user){
             return res.status(500).json({success: false, message: 'User already exists. Please login.'})
         } 
@@ -64,6 +62,7 @@ export const verifyEmail = async (req, res) => {
     }
 }
 
+// Confirm verification code
 export const confirmVerificationCode = async (req, res) => {
 
     const { token, code } = req.body;
