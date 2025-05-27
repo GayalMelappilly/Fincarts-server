@@ -705,6 +705,7 @@ export const getFishList = async (req, res) => {
     }
 };
 
+// Get seller profile for buyer
 export const getSellerProfile = async (req, res) => {
 
     const sellerId = req.params.id;

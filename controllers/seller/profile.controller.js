@@ -611,6 +611,7 @@ export const loginSeller = async (req, res) => {
                 email: seller.email,
                 phone: seller.phone,
                 displayName: seller.display_name,
+                profileUrl: seller.logo_url,
                 accessToken,
                 refreshToken
             }
@@ -929,6 +930,103 @@ export const updateProfile = async (req, res) => {
             success: false,
             message: 'Failed to update seller details',
             error: error.message
+        });
+    }
+}
+
+export const updatePassword = async (req, res) => {
+    try {
+        const sellerId = req.userId;
+        const formData = req.body;
+        console.log('formdata : ',formData)
+        const { currentPassword, newPassword, confirmPassword } = formData;
+
+        console.log('update password : ',currentPassword, newPassword)
+
+        // Validation checks
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'All password fields are required'
+            });
+        }
+
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password and confirm password do not match'
+            });
+        }
+
+        if (newPassword.length < 8) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 8 characters long'
+            });
+        }
+
+        // Find the seller
+        const seller = await prisma.sellers.findUnique({
+            where: {
+                id: sellerId
+            }
+        });
+
+        if (!seller) {
+            return res.status(404).json({
+                success: false,
+                message: 'Seller not found'
+            });
+        }
+
+        // Verify current password
+        const isCurrentPasswordValid = await matchPassword(currentPassword, seller.password_hash);
+        
+        if (!isCurrentPasswordValid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Current password is incorrect'
+            });
+        }
+
+        // Check if new password is same as current password
+        const isSamePassword = await matchPassword(newPassword, seller.password_hash);
+        
+        if (isSamePassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be different from current password'
+            });
+        }
+
+        // Hash the new password
+        const hashedNewPassword = await hashPassword(newPassword);
+
+        // Update the password in database
+        await prisma.sellers.update({
+            where: {
+                id: sellerId
+            },
+            data: {
+                password_hash: hashedNewPassword,
+                updated_at: new Date()
+            }
+        });
+
+        // Log successful password update (without sensitive data)
+        console.log(`Password updated successfully for seller: ${sellerId}`);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password updated successfully'
+        });
+
+    } catch (error) {
+        console.error('Error updating password:', error);
+        
+        return res.status(500).json({
+            success: false,
+            message: 'Internal server error. Please try again later.'
         });
     }
 }
