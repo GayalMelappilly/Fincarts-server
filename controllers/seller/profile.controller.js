@@ -653,7 +653,7 @@ export const verifyEmail = async (req, res) => {
         const verificationToken = createEmailVerificationToken(email, verificationCode)
 
         // Send verification email
-        await sendVerificationEmail(email, verificationCode, verificationToken, 'Seller');
+        await sendVerificationEmail(email, verificationCode, verificationToken, 'Seller', 'auth');
 
         return res.status(200).json({
             success: true,
@@ -934,6 +934,7 @@ export const updateProfile = async (req, res) => {
     }
 }
 
+// Update seller password
 export const updatePassword = async (req, res) => {
     try {
         const sellerId = req.userId;
@@ -1030,3 +1031,99 @@ export const updatePassword = async (req, res) => {
         });
     }
 }
+
+// Change seller password (forgot password)
+export const ChangeSellerPassword = async (req, res) => {
+    try {
+        const { newPassword, verificationToken } = req.body;
+
+        // Validate required fields
+        if (!newPassword || !verificationToken) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Email, new password, and verification token are required' 
+            });
+        }
+
+        // Validate password strength
+        if (newPassword.length < 8) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 8 characters long'
+            });
+        }
+
+        // Verify the token
+        let decodedToken;
+        try {
+            decodedToken = verifyEmailVerificationToken(verificationToken);
+            
+            // Check if the email in token matches the provided email
+            if (!decodedToken.email) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid verification token'
+                });
+            }
+        } catch (tokenError) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or expired verification token'
+            });
+        }
+
+        // Find the seller
+        const seller = await prisma.sellers.findUnique({
+            where: {
+                email: decodedToken.email
+            }
+        });
+
+        if (!seller) {
+            return res.status(404).json({
+                success: false, 
+                message: "Seller doesn't exist. Please re-check the email address."
+            });
+        }
+
+        // Hash the new password
+        const hashedPassword = await hashPassword(newPassword)
+
+        // Update the seller's password
+        const updatedSeller = await prisma.sellers.update({
+            where: {
+                email: decodedToken.email
+            },
+            data: {
+                password_hash: hashedPassword,
+                updated_at: new Date()
+            },
+            select: {
+                id: true,
+                email: true,
+                business_name: true,
+                display_name: true,
+                updated_at: true
+            }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Seller password updated successfully',
+            seller: {
+                id: updatedSeller.id,
+                email: updatedSeller.email,
+                business_name: updatedSeller.business_name,
+                display_name: updatedSeller.display_name
+            }
+        });
+
+    } catch (error) {
+        console.error('Seller password change error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error updating seller password',
+            error: error.message
+        });
+    }
+};

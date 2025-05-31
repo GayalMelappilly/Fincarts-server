@@ -1,5 +1,5 @@
 import express from 'express'
-import { sellerCreateProfile, getCurrentSeller, loginSeller, logoutSeller, verifyEmail, confirmVerificationCode, updateProfile, updatePassword } from '../../controllers/seller/profile.controller.js'
+import { sellerCreateProfile, getCurrentSeller, loginSeller, logoutSeller, verifyEmail, confirmVerificationCode, updateProfile, updatePassword, ChangeSellerPassword } from '../../controllers/seller/profile.controller.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { sellerOnly } from '../../middlewares/role.middleware.js'
 
@@ -13,5 +13,6 @@ sellerProfileRouter.post('/login', loginSeller)
 sellerProfileRouter.get('/logout', authenticate, logoutSeller)
 sellerProfileRouter.put('/update-profile', authenticate, sellerOnly, updateProfile)
 sellerProfileRouter.put('/update-password', authenticate, sellerOnly, updatePassword)
+sellerProfileRouter.post('/change-password', ChangeSellerPassword)
 
 export default sellerProfileRouter

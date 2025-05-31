@@ -18,7 +18,7 @@ const MAIL_ID = process.env.SMTP_MAIL
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 oauth2Client.setCredentials({refresh_token : REFRESH_TOKEN})
 
-export const sendVerificationEmail = async (email, code, token, name) => {
+export const sendVerificationEmail = async (email, code, token, name, type) => {
 
   console.log(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, REFRESH_TOKEN)
 
@@ -46,7 +46,14 @@ export const sendVerificationEmail = async (email, code, token, name) => {
     const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${token}`;
 
     // Render email template
-    const templatePath = path.join(__dirname, '../views/mails/verification-mail.ejs');
+    let mailPath;
+    if(type === 'auth'){
+      mailPath = '../views/mails/verification-mail.ejs'
+    }else if(type === 'forgotPassword'){
+      mailPath = '../views/mails/forgot-password-verification-mail.ejs'
+    }
+    console.log(mailPath)
+    const templatePath = path.join(__dirname, mailPath);
     const htmlContent = await ejs.renderFile(templatePath, {
       name,
       verificationToken: code,

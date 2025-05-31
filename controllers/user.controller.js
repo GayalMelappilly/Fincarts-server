@@ -44,7 +44,7 @@ export const verifyEmail = async (req, res) => {
         const verificationToken = createEmailVerificationToken(email, verificationCode)
 
         // Send verification email
-        await sendVerificationEmail(email, verificationCode, verificationToken, 'User');
+        await sendVerificationEmail(email, verificationCode, verificationToken, 'User', 'auth');
 
         return res.status(200).json({
             success: true,
@@ -503,6 +503,8 @@ export const getCurrentUser = async (req, res) => {
             },
         });
 
+        console.log("DATA : ",data)
+
         if (!data) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -903,3 +905,141 @@ export const getSellerProfile = async (req, res) => {
         })
     }
 }
+
+// Forgot password verification 
+export const ForgotPasswordVerifyEmail = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email is required' });
+        }
+
+        const user = await prisma.users.findUnique({
+            where: {
+                email: email
+            }
+        });
+
+        if (!user){
+            return res.status(500).json({success: false, message: "User doesn't exist. Please re-check the email address."})
+        } 
+
+        // Generate a verification code for the email display
+        const verificationCode = generateVerificationToken();
+
+        // Create JWT token with user info and verification code
+        const verificationToken = createEmailVerificationToken(email, verificationCode)
+
+        // Send verification email
+        await sendVerificationEmail(email, verificationCode, verificationToken, 'User', 'forgotPassword');
+
+        return res.status(200).json({
+            success: true,
+            token: verificationToken,
+            message: 'Verification email sent successfully'
+        });
+
+    } catch (error) {
+        console.error('Email verification error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error sending verification email',
+            error: error.message
+        });
+    }
+}
+
+// Change password 
+export const ChangePassword = async (req, res) => {
+    try {
+        const { newPassword, verificationToken } = req.body;
+
+        // Validate required fields
+        if (!newPassword || !verificationToken) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Email, new password, and verification token are required' 
+            });
+        }
+
+        // Validate password strength (optional but recommended)
+        if (newPassword.length < 8) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 8 characters long'
+            });
+        }
+
+        // Verify the token (you'll need to implement this based on your JWT verification logic)
+        let decodedToken;
+        try {
+            decodedToken = verifyEmailVerificationToken(verificationToken);
+            
+            // Check if the email in token matches the provided email
+            if (!decodedToken.email) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid verification token'
+                });
+            }
+        } catch (tokenError) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or expired verification token'
+            });
+        }
+
+        // Find the user
+        const user = await prisma.users.findUnique({
+            where: {
+                email: decodedToken.email
+            }
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false, 
+                message: "User doesn't exist. Please re-check the email address."
+            });
+        }
+
+        // Hash the new password
+        const hashedPassword = await hashPassword(newPassword)
+
+        // Update the user's password
+        const updatedUser = await prisma.users.update({
+            where: {
+                email: decodedToken.email
+            },
+            data: {
+                password_hash: hashedPassword,
+                updated_at: new Date()
+            },
+            select: {
+                id: true,
+                email: true,
+                full_name: true,
+                updated_at: true
+            }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password updated successfully',
+            user: {
+                id: updatedUser.id,
+                email: updatedUser.email,
+                full_name: updatedUser.full_name
+            }
+        });
+
+    } catch (error) {
+        console.error('Password change error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error updating password',
+            error: error.message
+        });
+    }
+};

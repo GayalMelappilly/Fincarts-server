@@ -1,10 +1,11 @@
 import prisma from '../utils/prisma.js'
+import crypto from 'crypto'
 
 // Add to cart
 export const addToCart = async (req, res) => {
   try {
     // Extract the necessary data from the request body
-    const { 
+    const {
       fishId,
       quantity// Default to 1 if not specified
     } = req.body;
@@ -127,11 +128,151 @@ export const addToCart = async (req, res) => {
   }
 }
 
+// Add to cart - Guest
+export const addToCartGuest = async (req, res) => {
+  try {
+    // Extract the necessary data from the request body
+    const {
+      fishId,
+      quantity// Default to 1 if not specified
+    } = req.body;
+
+    // Validate required fields
+    if (!fishId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: userId or fishData'
+      });
+    }
+
+    // Validate quantity is a positive integer
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity must be a positive integer'
+      });
+    }
+
+    // Check if fish listing exists
+    const fishListing = await prisma.fish_listings.findUnique({
+      where: { id: fishId }
+    });
+
+    if (!fishListing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Fish listing not found'
+      });
+    }
+
+    // Check if fish is in stock
+    if (fishListing.quantity_available < quantity) {
+      return res.status(400).json({
+        success: false,
+        message: `Not enough stock available. Only ${fishListing.quantity_available} units available.`
+      });
+    }
+
+    // Find user's active cart or create a new one
+    // let cart = await prisma.shopping_carts.findFirst({
+    //   where: {
+    //     user_id: userId,
+    //     is_active: true
+    //   }
+    // });
+
+    // if (!cart) {
+    //   cart = await prisma.shopping_carts.create({
+    //     data: {
+    //       user_id: userId,
+    //       is_active: true
+    //     }
+    //   });
+    // }
+
+    // Check if item already exists in cart
+    // const existingCartItem = await prisma.cart_items.findFirst({
+    //   where: {
+    //     cart_id: cart.id,
+    //     fish_listing_id: fishId
+    //   }
+    // });
+
+    // let cartItem;
+
+    // if (existingCartItem) {
+    //   // Update quantity if item exists
+    //   cartItem = await prisma.cart_items.update({
+    //     where: { id: existingCartItem.id },
+    //     data: {
+    //       quantity: existingCartItem.quantity + quantity
+    //     },
+    //     include: {
+    //       fish_listings: {
+    //         select: {
+    //           name: true,
+    //           price: true,
+    //           images: true
+    //         }
+    //       }
+    //     }
+    //   });
+    // } else {
+    //   // Create new cart item if it doesn't exist
+    //   cartItem = await prisma.cart_items.create({
+    //     data: {
+    //       cart_id: cart.id,
+    //       fish_listing_id: fishId,
+    //       quantity: quantity
+    //     },
+    //     include: {
+    //       fish_listings: {
+    //         select: {
+    //           name: true,
+    //           price: true,
+    //           images: true
+    //         }
+    //       }
+    //     }
+    //   });
+    // }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Item added to cart successfully',
+      data: {
+        fishListings: {
+          breed: fishListing.breed,
+          color: fishListing.color,
+          description: fishListing.description,
+          id: fishListing.id,
+          images: fishListing.images,
+          name: fishListing.name,
+          price: fishListing.price,
+          size: fishListing.size
+        },
+        addedAt: {},
+        id: crypto.randomUUID(),
+        fishListingId: fishId,
+        quantity: quantity
+      }
+    });
+
+  } catch (error) {
+    console.error('Error adding fish to cart:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while adding the item to cart',
+      error: error.message
+    });
+  }
+}
+
 // Edit item in cart
 export const editCartItem = async (req, res) => {
   try {
     // Extract the necessary data from the request body
-    const { 
+    const {
       id,
       quantity
     } = req.body;
