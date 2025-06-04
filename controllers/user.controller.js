@@ -508,7 +508,6 @@ export const getCurrentUser = async (req, res) => {
         if (!data) {
             return res.status(404).json({ message: 'User not found' });
         }
-
         
         const user = transformToCamelCase(data)
         
