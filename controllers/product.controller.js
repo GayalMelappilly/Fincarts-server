@@ -2,13 +2,6 @@ import prisma from '../utils/prisma.js'
 import { transformToCamelCase } from '../utils/toCamelCase.js';
 
 export const getFeaturedFishes = async (req, res) => {
-    //   const {
-    //     limit = 10,
-    //     offset = 0,
-    //     includeCategory = true,
-    //     includeSeller = false
-    //   } = options;
-
     try {
         const featuredFishes = await prisma.fish_listings.findMany({
             where: {
@@ -18,18 +11,43 @@ export const getFeaturedFishes = async (req, res) => {
                     gt: 0
                 }
             },
-            //   include: {
-            //     fish_categories: includeCategory,
-            //     users: includeSeller ? {
-            //       select: {
-            //         id: true,
-            //         business_name: true,
-            //         display_name: true,
-            //         seller_rating: true,
-            //         logo_url: true
-            //       }
-            //     } : false
-            //   },
+            include: {
+                fish_categories: {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_url: true
+                    }
+                },
+                users: { // This is the seller relation
+                    select: {
+                        id: true,
+                        business_name: true,
+                        display_name: true,
+                        logo_url: true,
+                        seller_rating: true,
+                        status: true,
+                        seller_addresses: {
+                            select: {
+                                id: true,
+                                address_line1: true,
+                                address_line2: true,
+                                landmark: true,
+                                is_default: true,
+                                seller_locations: {
+                                    select: {
+                                        city: true,
+                                        state: true,
+                                        country: true,
+                                        pin_code: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             orderBy: [
                 { created_at: 'desc' },
                 { view_count: 'desc' }
@@ -38,25 +56,24 @@ export const getFeaturedFishes = async (req, res) => {
             skip: 0
         });
 
-        const data = transformToCamelCase(featuredFishes)
+        const data = transformToCamelCase(featuredFishes);
 
-        console.log("features fishes reached")
+        console.log("Featured fishes with seller details fetched successfully");
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
             data: data,
             count: data.length
-        })
+        });
     } catch (error) {
         console.error('Error fetching featured fishes:', error);
         res.status(500).json({
             success: false,
             error: error.message,
             data: []
-        })
+        });
     }
 }
-
 
 export const getFishesByCategory = async (req, res) => {
     const options = {
@@ -67,7 +84,7 @@ export const getFishesByCategory = async (req, res) => {
         minPrice: 0,
         maxPrice: 99999999,
         includeCategory: true,
-        includeSeller: false
+        includeSeller: true
     }
 
     const categoryId = req.params.id
@@ -76,65 +93,88 @@ export const getFishesByCategory = async (req, res) => {
 
     // Validate categoryId
     if (!categoryId) {
-        return {
+        return res.status(400).json({
             success: false,
             error: 'Category ID is required',
             data: []
-        };
+        });
     }
 
     try {
         // Build price filter
-        // const priceFilter = {};
-        // if (options.minPrice !== undefined) priceFilter.gte = options.minPrice;
-        // if (options.maxPrice !== undefined) priceFilter.lte = options.maxPrice;
+        const priceFilter = {};
+        if (options.minPrice !== undefined) priceFilter.gte = options.minPrice;
+        if (options.maxPrice !== undefined) priceFilter.lte = options.maxPrice;
 
-        // if (Object.keys(priceFilter).length > 0) {
-        //     whereClause.price = priceFilter;
-        // }
+        // Build where clause
+        const whereClause = {
+            category_id: categoryId,
+            listing_status: 'active',
+            quantity_available: {
+                gt: 0
+            }
+        };
 
-        // // Build order by clause
-        // const orderByClause = {};
-        // orderByClause[options.sortBy] = options.sortOrder;
+        // Add price filter if specified
+        if (Object.keys(priceFilter).length > 0) {
+            whereClause.price = priceFilter;
+        }
+
+        // Build order by clause
+        const orderByClause = {};
+        orderByClause[options.sortBy] = options.sortOrder;
 
         const totalCount = await prisma.fish_listings.count({
-            where: {
-                category_id: categoryId,
-                listing_status: 'active',
-                quantity_available: {
-                    gt: 0
-                }
-            }
+            where: whereClause
         });
 
         const fishListings = await prisma.fish_listings.findMany({
-            where: {
-                category_id: categoryId,
-                listing_status: 'active',
-                quantity_available: {
-                    gt: 0
-                }
+            where: whereClause,
+            include: {
+                fish_categories: options.includeCategory ? {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_url: true
+                    }
+                } : false,
+                users: options.includeSeller ? {
+                    select: {
+                        id: true,
+                        business_name: true,
+                        display_name: true,
+                        logo_url: true,
+                        seller_rating: true,
+                        status: true,
+                        seller_addresses: {
+                            select: {
+                                id: true,
+                                address_line1: true,
+                                address_line2: true,
+                                landmark: true,
+                                is_default: true,
+                                seller_locations: {
+                                    select: {
+                                        city: true,
+                                        state: true,
+                                        country: true,
+                                        pin_code: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } : false
             },
-            // include: {
-            //     fish_categories: options.includeCategory,
-            //     users: options.includeSeller ? {
-            //         select: {
-            //             id: true,
-            //             business_name: true,
-            //             display_name: true,
-            //             seller_rating: true,
-            //             logo_url: true
-            //         }
-            //     } : false
-            // },
-            // orderBy: orderByClause,
+            orderBy: orderByClause,
             take: options.limit,
             skip: options.offset
         });
 
         const data = transformToCamelCase(fishListings)
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
             data: data,
             count: data.length,
@@ -200,6 +240,9 @@ export const getFishesByCategoryName = async (req, res) => {
             includeSeller: false
         }
 
+        const orderByClause = {};
+        orderByClause[options.sortBy] = options.sortOrder;
+
         // Use the found category ID to get fish listings
 
         const fishListings = await prisma.fish_listings.findMany({
@@ -210,19 +253,44 @@ export const getFishesByCategoryName = async (req, res) => {
                     gt: 0
                 }
             },
-            // include: {
-            //     fish_categories: options.includeCategory,
-            //     users: options.includeSeller ? {
-            //         select: {
-            //             id: true,
-            //             business_name: true,
-            //             display_name: true,
-            //             seller_rating: true,
-            //             logo_url: true
-            //         }
-            //     } : false
-            // },
-            // orderBy: orderByClause,
+            include: {
+                fish_categories: options.includeCategory ? {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_url: true
+                    }
+                } : false,
+                users: { // This is the seller relation
+                    select: {
+                        id: true,
+                        business_name: true,
+                        display_name: true,
+                        logo_url: true,
+                        seller_rating: true,
+                        status: true,
+                        seller_addresses: {
+                            select: {
+                                id: true,
+                                address_line1: true,
+                                address_line2: true,
+                                landmark: true,
+                                is_default: true,
+                                seller_locations: {
+                                    select: {
+                                        city: true,
+                                        state: true,
+                                        country: true,
+                                        pin_code: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            orderBy: orderByClause,
             take: options.limit,
             skip: options.offset
         });
@@ -238,7 +306,9 @@ export const getFishesByCategoryName = async (req, res) => {
             }
         });
 
+        console.log('categorized : ', fishListings)
         const data = transformToCamelCase(fishListings)
+
 
         res.status(201).json({
             success: true,
