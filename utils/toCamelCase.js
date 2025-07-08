@@ -28,9 +28,10 @@ const convertPriceToNumber = (priceObj) => {
     for (let i = 0; i < d.length; i++) {
         value = value * 10 + d[i];
     }
-    
+
     // Apply exponent
-    value = value * Math.pow(10, e);
+    // value = e > 0 ? value * Math.pow(10, e) : value;
+
     
     // Apply sign
     return s === 1 ? value : -value;

@@ -56,9 +56,10 @@ export const getFeaturedFishes = async (req, res) => {
             skip: 0
         });
 
+        
         const data = transformToCamelCase(featuredFishes);
-
-        console.log("Featured fishes with seller details fetched successfully");
+        
+        console.log("Featured fishes with seller details fetched successfully"); 
 
         res.status(200).json({
             success: true,
@@ -195,7 +196,6 @@ export const getFishesByCategory = async (req, res) => {
     }
 }
 
-
 export const getFishesByCategoryName = async (req, res) => {
 
     const categoryName = req.params.name
@@ -331,7 +331,6 @@ export const getFishesByCategoryName = async (req, res) => {
     }
 }
 
-
 export const getAllCategories = async (options = {}) => {
     const { includeCount = false } = options;
 
@@ -370,7 +369,6 @@ export const getAllCategories = async (options = {}) => {
         };
     }
 }
-
 
 export const searchFishes = async (searchTerm, options = {}) => {
     const {

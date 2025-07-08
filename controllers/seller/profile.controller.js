@@ -674,6 +674,8 @@ export const verifyEmail = async (req, res) => {
 // Confirm verification code
 export const confirmVerificationCode = async (req, res) => {
 
+    console.log('Reached here!')
+
     const { token, code } = req.body;
     console.log(token, code)
 

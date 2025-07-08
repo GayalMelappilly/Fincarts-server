@@ -317,7 +317,7 @@ model sellers {
   phone                    String                    @db.VarChar(20)
   alternate_phone          String?                   @db.VarChar(20)
   gstin                    String?                   @unique @db.VarChar(15)
-  pan_card                 String                    @unique @db.VarChar(10)
+  pan_card                 String?                   @unique @db.VarChar(10)
   legal_business_name      String                    @db.VarChar(255)
   display_name             String                    @db.VarChar(100)
   store_description        String?

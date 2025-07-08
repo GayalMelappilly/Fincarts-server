@@ -251,7 +251,7 @@ export const editProduct = async (req, res) => {
         }
 
         const {
-            category_id,
+            category,
             name,
             description,
             price,
@@ -266,6 +266,21 @@ export const editProduct = async (req, res) => {
             dietary_requirements,
             listing_status
         } = req.body
+
+        console.log("category in edit products : ",category)
+        // Find the category by name
+        const categoryData = await prisma.fish_categories.findFirst({
+            where: { name: category }
+        });
+
+        if (!categoryData) {
+            return res.status(400).json({
+                success: false,
+                message: `Category '${category}' not found`
+            });
+        }
+
+        const category_id = categoryData.id;
 
         // Status change tracking for metrics update
         const statusChanged = listing_status && existingProduct.listing_status !== listing_status;
