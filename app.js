@@ -9,6 +9,7 @@ import wishlistRouter from './routes/wishlist.route.js'
 import sellerProductRouter from './routes/seller/product.route.js'
 import sellerProfileRouter from './routes/seller/profile.route.js'
 import sellerOrderRouter from './routes/seller/order.route.js'
+import adminRouter from './routes/admin/admin.route.js'
 
 export const app = express()
 
@@ -27,3 +28,4 @@ app.use(cors({
 
 app.use('/api/v1', userRouter, productRouter, orderRouter, cartRouter, wishlistRouter)
 app.use('/api/v1/seller', sellerOrderRouter, sellerProductRouter, sellerProfileRouter)
+app.use('/api/v1/admin', adminRouter)

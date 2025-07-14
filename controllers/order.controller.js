@@ -3,28 +3,39 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 export const placeOrder = async (req, res) => {
+
+  console.log("Reached place order.")
+
   try {
     const {
       // Order items - array of {fishId, quantity}
       orderItems,
       // Guest user information (required if not authenticated)
       guestInfo, // {email, full_name, phone_number}
-      // Shipping details
       shippingDetails, // {address_line1, address_line2, city, state, postal_code, country, shipping_method, shipping_cost}
-      // Payment details
-      paymentDetails, // {payment_method, transaction_id}
-      // Optional fields
+      // paymentDetails, // {payment_method, transaction_id}
       couponCode,
       pointsToUse = 0,
       orderNotes
     } = req.body;
 
+    console.log(orderItems, guestInfo, shippingDetails, couponCode, pointsToUse, orderNotes)
+
     // Check if user is authenticated (userId will be set by auth middleware)
     const userId = req.userId;
     const isGuest = !userId;
 
+    console.log("user id : ", userId)
+
+    // Delete this after implementing payment gateway
+    const paymentDetails = {
+      paymentMethod: 'card',
+      transactionId: '106700001340'
+    }
+
     // Validate required fields
     if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0) {
+      console.log('Order items are required and must be a non-empty array')
       return res.status(400).json({
         success: false,
         message: 'Order items are required and must be a non-empty array'
@@ -32,13 +43,15 @@ export const placeOrder = async (req, res) => {
     }
 
     if (!shippingDetails) {
+      console.log('Shipping details are required')
       return res.status(400).json({
         success: false,
         message: 'Shipping details are required'
       });
     }
 
-    if (!paymentDetails || !paymentDetails.payment_method) {
+    if (!paymentDetails || !paymentDetails.paymentMethod) {
+      console.log('Payment details are required')
       return res.status(400).json({
         success: false,
         message: 'Payment details are required'
@@ -47,7 +60,8 @@ export const placeOrder = async (req, res) => {
 
     // For guest users, validate guest information
     if (isGuest) {
-      if (!guestInfo || !guestInfo.email || !guestInfo.full_name) {
+      if (!guestInfo || !guestInfo.email || !guestInfo.fullName) {
+        console.log('Guest information (email, full_name) is required for guest orders')
         return res.status(400).json({
           success: false,
           message: 'Guest information (email, full_name) is required for guest orders'
@@ -57,6 +71,7 @@ export const placeOrder = async (req, res) => {
       // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(guestInfo.email)) {
+        console.log('Invalid email format')
         return res.status(400).json({
           success: false,
           message: 'Invalid email format'
@@ -65,9 +80,10 @@ export const placeOrder = async (req, res) => {
     }
 
     // Validate shipping details
-    const requiredShippingFields = ['address_line1', 'city', 'state', 'postal_code', 'country'];
+    const requiredShippingFields = ['address', 'city', 'state', 'zip'];
     for (const field of requiredShippingFields) {
       if (!shippingDetails[field]) {
+        console.log(`Shipping ${field} is required`)
         return res.status(400).json({
           success: false,
           message: `Shipping ${field} is required`
@@ -78,6 +94,7 @@ export const placeOrder = async (req, res) => {
     // Validate order items format
     for (const item of orderItems) {
       if (!item.fishId || !item.quantity || !Number.isInteger(item.quantity) || item.quantity <= 0) {
+        console.log('Each order item must have a valid fishId and positive integer quantity')
         return res.status(400).json({
           success: false,
           message: 'Each order item must have a valid fishId and positive integer quantity'
@@ -104,8 +121,8 @@ export const placeOrder = async (req, res) => {
           const newUser = await tx.users.create({
             data: {
               email: guestInfo.email,
-              full_name: guestInfo.full_name,
-              phone_number: guestInfo.phone_number || null,
+              full_name: guestInfo.fullName,
+              phone_number: guestInfo.phoneNumber || null,
               password_hash: 'GUEST_USER', // Mark as guest user
               user_type: 'customer',
               email_verified: false,
@@ -189,8 +206,8 @@ export const placeOrder = async (req, res) => {
       // Create payment details record
       const paymentRecord = await tx.payment_details.create({
         data: {
-          payment_method: paymentDetails.payment_method,
-          transaction_id: paymentDetails.transaction_id || null,
+          payment_method: paymentDetails.paymentMethod,
+          transaction_id: paymentDetails.transactionId || null,
           status: 'pending',
           payment_date: new Date(),
           payment_metadata: paymentDetails.metadata || {}

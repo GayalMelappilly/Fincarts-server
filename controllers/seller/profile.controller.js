@@ -420,7 +420,8 @@ export const getCurrentSeller = async (req, res) => {
                 );
             })
             .map(order => ({
-                id: `#ORD-${order.id.substring(0, 4)}`,
+                id: order.id,
+                orderId: `#ORD-${order.id.substring(0, 4)}`,
                 customer: order.users.full_name,
                 date: new Date(order.created_at).toLocaleDateString('en-US', {
                     day: '2-digit',

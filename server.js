@@ -18,7 +18,7 @@ const options = {
 
 const server = process.env.NODE_ENV === 'production' ? https.createServer(options, app) : http.createServer(app)
 
-server.listen(5000, async () => {
+server.listen(5000, '0.0.0.0', async () => {
     await client.connect().then(() => {
         console.log('Database connected successfully')
     }).catch((err) => {
