@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Place order user
 export const placeOrder = async (req, res) => {
 
   console.log("Reached place order.")
@@ -11,7 +12,7 @@ export const placeOrder = async (req, res) => {
       // Order items - array of {fishId, quantity}
       orderItems,
       // Guest user information (required if not authenticated)
-      guestInfo, // {email, full_name, phone_number}
+      guestInfo, // {email, fullName, phoneNumber}
       shippingDetails, // {address_line1, address_line2, city, state, postal_code, country, shipping_method, shipping_cost}
       // paymentDetails, // {payment_method, transaction_id}
       couponCode,
@@ -335,3 +336,304 @@ export const placeOrder = async (req, res) => {
     });
   }
 };
+
+// Place order Guest
+// export const placeOrderGuest = async (req, res) => {
+//   console.log("Reached guest checkout.");
+
+//   try {
+//     const {
+//       // Order items - array of {fishId, quantity}
+//       orderItems,
+//       // Guest user information (required)
+//       guestInfo, // {email, fullName, phoneNumber}
+//       shippingDetails, // {address, city, state, zip, shipping_method, shipping_cost}
+//       paymentDetails, // {payment_method, transaction_id}
+//       couponCode,
+//       orderNotes
+//     } = req.body;
+
+//     console.log('Guest checkout data:', { orderItems, guestInfo, shippingDetails, couponCode, orderNotes });
+
+//     // Delete this after implementing payment gateway
+//     const mockPaymentDetails = {
+//       paymentMethod: 'card',
+//       transactionId: '106700001340'
+//     };
+
+//     // Validate required fields
+//     if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0) {
+//       console.log('Order items are required and must be a non-empty array');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Order items are required and must be a non-empty array'
+//       });
+//     }
+
+//     if (!guestInfo || !guestInfo.email || !guestInfo.fullName) {
+//       console.log('Guest information (email, fullName) is required');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Guest information (email, fullName) is required'
+//       });
+//     }
+
+//     // Validate email format
+//     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+//     if (!emailRegex.test(guestInfo.email)) {
+//       console.log('Invalid email format');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid email format'
+//       });
+//     }
+
+//     if (!shippingDetails) {
+//       console.log('Shipping details are required');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Shipping details are required'
+//       });
+//     }
+
+//     // Validate shipping details
+//     const requiredShippingFields = ['address', 'city', 'state', 'zip'];
+//     for (const field of requiredShippingFields) {
+//       if (!shippingDetails[field]) {
+//         console.log(`Shipping ${field} is required`);
+//         return res.status(400).json({
+//           success: false,
+//           message: `Shipping ${field} is required`
+//         });
+//       }
+//     }
+
+//     if (!paymentDetails || !paymentDetails.paymentMethod) {
+//       console.log('Payment details are required');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Payment details are required'
+//       });
+//     }
+
+//     // Validate order items format
+//     for (const item of orderItems) {
+//       if (!item.fishId || !item.quantity || !Number.isInteger(item.quantity) || item.quantity <= 0) {
+//         console.log('Each order item must have a valid fishId and positive integer quantity');
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Each order item must have a valid fishId and positive integer quantity'
+//         });
+//       }
+//     }
+
+//     // Start transaction
+//     const result = await prisma.$transaction(async (tx) => {
+//       let guestUserId;
+
+//       // Check if a user with this email already exists
+//       const existingUser = await tx.users.findUnique({
+//         where: { email: guestInfo.email }
+//       });
+
+//       if (existingUser) {
+//         // Use existing user ID
+//         guestUserId = existingUser.id;
+        
+//         // Update existing user with guest info if needed
+//         await tx.users.update({
+//           where: { id: existingUser.id },
+//           data: {
+//             full_name: guestInfo.fullName,
+//             phone_number: guestInfo.phoneNumber || existingUser.phone_number
+//           }
+//         });
+//       } else {
+//         // Create a new guest user
+//         const newUser = await tx.users.create({
+//           data: {
+//             email: guestInfo.email,
+//             full_name: guestInfo.fullName,
+//             phone_number: guestInfo.phoneNumber || null,
+//             password_hash: 'GUEST_USER', // Mark as guest user
+//             user_type: 'customer',
+//             email_verified: false,
+//             phone_verified: false,
+//             points_balance: 0
+//           }
+//         });
+//         guestUserId = newUser.id;
+//       }
+
+//       // Validate fish listings and calculate total
+//       let totalAmount = 0;
+//       const validatedItems = [];
+
+//       for (const item of orderItems) {
+//         const fishListing = await tx.fish_listings.findUnique({
+//           where: { id: item.fishId }
+//         });
+
+//         if (!fishListing) {
+//           throw new Error(`Fish listing with ID ${item.fishId} not found`);
+//         }
+
+//         if (fishListing.listing_status !== 'active') {
+//           throw new Error(`Fish listing "${fishListing.name}" is not available for purchase`);
+//         }
+
+//         if (fishListing.quantity_available < item.quantity) {
+//           throw new Error(`Not enough stock for "${fishListing.name}". Only ${fishListing.quantity_available} units available.`);
+//         }
+
+//         const itemTotal = fishListing.price * item.quantity;
+//         totalAmount += Number(itemTotal);
+
+//         validatedItems.push({
+//           fishId: item.fishId,
+//           quantity: item.quantity,
+//           unitPrice: fishListing.price,
+//           totalPrice: itemTotal,
+//           fishListing
+//         });
+//       }
+
+//       // Apply coupon discount if provided
+//       let discountAmount = 0;
+//       if (couponCode) {
+//         // Add your coupon validation logic here
+//         // For now, we'll just set discount to 0
+//         discountAmount = 0;
+//       }
+
+//       // Add shipping cost to total
+//       const shippingCost = shippingDetails.shipping_cost || 0;
+//       const finalTotal = totalAmount + Number(shippingCost) - discountAmount;
+
+//       // Create shipping details record
+//       const shippingRecord = await tx.shipping_details.create({
+//         data: {
+//           carrier: shippingDetails.carrier || null,
+//           shipping_cost: shippingCost,
+//           shipping_method: shippingDetails.shipping_method || 'standard',
+//           estimated_delivery: shippingDetails.estimated_delivery || null,
+//           shipping_notes: shippingDetails.shipping_notes || {}
+//         }
+//       });
+
+//       // Create payment details record
+//       const paymentRecord = await tx.payment_details.create({
+//         data: {
+//           payment_method: paymentDetails.paymentMethod,
+//           transaction_id: paymentDetails.transactionId || null,
+//           status: 'pending',
+//           payment_date: new Date(),
+//           payment_metadata: paymentDetails.metadata || {}
+//         }
+//       });
+
+//       // Calculate points to be earned (2% of total amount) - guests can still earn points
+//       const pointsEarned = Math.floor(finalTotal * 0.02);
+
+//       // Create order
+//       const order = await tx.orders.create({
+//         data: {
+//           user_id: guestUserId,
+//           total_amount: finalTotal,
+//           status: 'pending',
+//           shipping_details_id: shippingRecord.id,
+//           payment_details_id: paymentRecord.id,
+//           points_earned: pointsEarned,
+//           points_used: 0, // Guests cannot use points
+//           discount_amount: discountAmount,
+//           coupon_code: couponCode || null,
+//           order_notes: orderNotes || null
+//         }
+//       });
+
+//       // Create order items and update fish listing quantities
+//       const orderItemsData = [];
+//       for (const item of validatedItems) {
+//         // Create order item
+//         const orderItem = await tx.order_items.create({
+//           data: {
+//             order_id: order.id,
+//             fish_listing_id: item.fishId,
+//             quantity: item.quantity,
+//             unit_price: item.unitPrice,
+//             total_price: item.totalPrice
+//           }
+//         });
+
+//         orderItemsData.push(orderItem);
+
+//         // Update fish listing quantity
+//         await tx.fish_listings.update({
+//           where: { id: item.fishId },
+//           data: {
+//             quantity_available: {
+//               decrement: item.quantity
+//             }
+//           }
+//         });
+//       }
+
+//       // Update user points balance with earned points
+//       if (pointsEarned > 0) {
+//         await tx.users.update({
+//           where: { id: guestUserId },
+//           data: {
+//             points_balance: {
+//               increment: pointsEarned
+//             }
+//           }
+//         });
+//       }
+
+//       return {
+//         order,
+//         orderItems: orderItemsData,
+//         shippingDetails: shippingRecord,
+//         paymentDetails: paymentRecord,
+//         guestUserId
+//       };
+//     });
+
+//     // Send success response
+//     return res.status(201).json({
+//       success: true,
+//       message: 'Guest order placed successfully',
+//       data: {
+//         orderId: result.order.id,
+//         orderStatus: result.order.status,
+//         totalAmount: result.order.total_amount,
+//         estimatedDelivery: result.shippingDetails.estimated_delivery,
+//         pointsEarned: result.order.points_earned,
+//         isGuestOrder: true,
+//         guestInfo: {
+//           email: guestInfo.email,
+//           fullName: guestInfo.fullName,
+//           phoneNumber: guestInfo.phoneNumber
+//         }
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Error placing guest order:', error);
+    
+//     // Handle specific error types
+//     if (error.message.includes('not found') || error.message.includes('not available') || error.message.includes('Not enough stock')) {
+//       return res.status(400).json({
+//         success: false,
+//         message: error.message
+//       });
+//     }
+
+//     return res.status(500).json({
+//       success: false,
+//       message: 'An error occurred while placing the guest order',
+//       error: error.message
+//     });
+//   }
+// };
+
