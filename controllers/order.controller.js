@@ -125,7 +125,7 @@ export const placeOrder = async (req, res) => {
               full_name: guestInfo.fullName,
               phone_number: guestInfo.phoneNumber || null,
               password_hash: 'GUEST_USER', // Mark as guest user
-              user_type: 'customer',
+              user_type: 'guest',
               email_verified: false,
               phone_verified: false
             }
@@ -337,303 +337,465 @@ export const placeOrder = async (req, res) => {
   }
 };
 
-// Place order Guest
-// export const placeOrderGuest = async (req, res) => {
-//   console.log("Reached guest checkout.");
+// Cart Checkout
+export const cartCheckout = async (req, res) => {
+  console.log("Reached cart checkout.");
 
-//   try {
-//     const {
-//       // Order items - array of {fishId, quantity}
-//       orderItems,
-//       // Guest user information (required)
-//       guestInfo, // {email, fullName, phoneNumber}
-//       shippingDetails, // {address, city, state, zip, shipping_method, shipping_cost}
-//       paymentDetails, // {payment_method, transaction_id}
-//       couponCode,
-//       orderNotes
-//     } = req.body;
+  try {
+    const {
+      cartId,
+      cartItems,
+      guestInfo,
+      shippingDetails,
+      couponCode,
+      pointsToUse = 0,
+      orderNotes,
+      selectedItems
+    } = req.body;
 
-//     console.log('Guest checkout data:', { orderItems, guestInfo, shippingDetails, couponCode, orderNotes });
+    console.log("Cart checkout data:", { cartId, cartItems, guestInfo, shippingDetails, couponCode, pointsToUse, orderNotes, selectedItems });
 
-//     // Delete this after implementing payment gateway
-//     const mockPaymentDetails = {
-//       paymentMethod: 'card',
-//       transactionId: '106700001340'
-//     };
+    const userId = req.userId;
+    const isGuest = !userId;
 
-//     // Validate required fields
-//     if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0) {
-//       console.log('Order items are required and must be a non-empty array');
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Order items are required and must be a non-empty array'
-//       });
-//     }
+    // Delete this after implementing payment gateway
+    const paymentDetails = {
+      paymentMethod: 'card',
+      transactionId: `CART_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    };
 
-//     if (!guestInfo || !guestInfo.email || !guestInfo.fullName) {
-//       console.log('Guest information (email, fullName) is required');
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Guest information (email, fullName) is required'
-//       });
-//     }
+    // Validate required fields (same as before)
+    if (!shippingDetails) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shipping details are required'
+      });
+    }
 
-//     // Validate email format
-//     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-//     if (!emailRegex.test(guestInfo.email)) {
-//       console.log('Invalid email format');
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Invalid email format'
-//       });
-//     }
+    if (!paymentDetails || !paymentDetails.paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment details are required'
+      });
+    }
 
-//     if (!shippingDetails) {
-//       console.log('Shipping details are required');
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Shipping details are required'
-//       });
-//     }
+    // Validate cart data based on user type (same as before)
+    if (isGuest) {
+      if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cart items are required for guest checkout'
+        });
+      }
 
-//     // Validate shipping details
-//     const requiredShippingFields = ['address', 'city', 'state', 'zip'];
-//     for (const field of requiredShippingFields) {
-//       if (!shippingDetails[field]) {
-//         console.log(`Shipping ${field} is required`);
-//         return res.status(400).json({
-//           success: false,
-//           message: `Shipping ${field} is required`
-//         });
-//       }
-//     }
+      if (!guestInfo || !guestInfo.email || !guestInfo.fullName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Guest information (email, fullName) is required for guest orders'
+        });
+      }
 
-//     if (!paymentDetails || !paymentDetails.paymentMethod) {
-//       console.log('Payment details are required');
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Payment details are required'
-//       });
-//     }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(guestInfo.email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid email format'
+        });
+      }
+    } else {
+      if (!cartId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cart ID is required for authenticated users'
+        });
+      }
+    }
 
-//     // Validate order items format
-//     for (const item of orderItems) {
-//       if (!item.fishId || !item.quantity || !Number.isInteger(item.quantity) || item.quantity <= 0) {
-//         console.log('Each order item must have a valid fishId and positive integer quantity');
-//         return res.status(400).json({
-//           success: false,
-//           message: 'Each order item must have a valid fishId and positive integer quantity'
-//         });
-//       }
-//     }
+    // Validate shipping details (same as before)
+    const requiredShippingFields = ['address', 'city', 'state', 'zip'];
+    for (const field of requiredShippingFields) {
+      if (!shippingDetails[field]) {
+        return res.status(400).json({
+          success: false,
+          message: `Shipping ${field} is required`
+        });
+      }
+    }
 
-//     // Start transaction
-//     const result = await prisma.$transaction(async (tx) => {
-//       let guestUserId;
+    // STEP 1: Pre-process data outside transaction
+    let orderUserId = userId;
+    let itemsToCheckout = [];
+    let userPointsBalance = 0;
 
-//       // Check if a user with this email already exists
-//       const existingUser = await tx.users.findUnique({
-//         where: { email: guestInfo.email }
-//       });
+    // Handle guest user creation/lookup outside transaction
+    if (isGuest) {
+      const existingUser = await prisma.users.findUnique({
+        where: { email: guestInfo.email }
+      });
 
-//       if (existingUser) {
-//         // Use existing user ID
-//         guestUserId = existingUser.id;
+      if (existingUser) {
+        orderUserId = existingUser.id;
+        userPointsBalance = existingUser.points_balance || 0;
+      } else {
+        const newUser = await prisma.users.create({
+          data: {
+            email: guestInfo.email,
+            full_name: guestInfo.fullName,
+            phone_number: guestInfo.phoneNumber || null,
+            password_hash: 'GUEST_USER',
+            user_type: 'customer',
+            email_verified: false,
+            phone_verified: false
+          }
+        });
+        orderUserId = newUser.id;
+        userPointsBalance = 0;
+      }
+
+      // Fetch fish listings for cart items
+      const fishListingIds = cartItems.map(item => item.fishListingId);
+      const fishListings = await prisma.fish_listings.findMany({
+        where: { id: { in: fishListingIds } },
+        include: { users: true }
+      });
+
+      const fishListingsMap = {};
+      fishListings.forEach(listing => {
+        fishListingsMap[listing.id] = listing;
+      });
+
+      itemsToCheckout = cartItems.map(cartItem => {
+        const fishListing = fishListingsMap[cartItem.fishListingId];
+        if (!fishListing) {
+          throw new Error(`Fish listing not found for ID: ${cartItem.fishListingId}`);
+        }
+        return {
+          id: cartItem.id,
+          quantity: cartItem.quantity,
+          fish_listings: fishListing
+        };
+      });
+    } else {
+      // Fetch user data and cart data
+      const [user, userCart] = await Promise.all([
+        prisma.users.findUnique({
+          where: { id: orderUserId },
+          select: { points_balance: true }
+        }),
+        prisma.shopping_carts.findFirst({
+          where: {
+            id: cartId,
+            user_id: orderUserId,
+            is_active: true
+          },
+          include: {
+            cart_items: {
+              include: {
+                fish_listings: {
+                  include: { users: true }
+                }
+              }
+            }
+          }
+        })
+      ]);
+
+      if (!userCart || !userCart.cart_items.length) {
+        throw new Error('No active cart found or cart is empty');
+      }
+
+      userPointsBalance = user?.points_balance || 0;
+      itemsToCheckout = userCart.cart_items;
+    }
+
+    // Filter and validate items
+    if (selectedItems && selectedItems.length > 0) {
+      const selectedItemIds = selectedItems.map(item => item.cartItemId);
+      itemsToCheckout = itemsToCheckout.filter(item => 
+        selectedItemIds.includes(item.id)
+      );
+
+      itemsToCheckout = itemsToCheckout.map(item => {
+        const selectedItem = selectedItems.find(si => si.cartItemId === item.id);
+        if (selectedItem && selectedItem.quantity) {
+          return { ...item, quantity: selectedItem.quantity };
+        }
+        return item;
+      });
+    }
+
+    if (itemsToCheckout.length === 0) {
+      throw new Error('No items selected for checkout');
+    }
+
+    // STEP 2: Process order calculations
+    const itemsBySeller = {};
+    let totalCartAmount = 0;
+
+    for (const cartItem of itemsToCheckout) {
+      const fishListing = cartItem.fish_listings;
+      const sellerId = fishListing.seller_id || 'platform';
+
+      if (fishListing.listing_status !== 'active') {
+        throw new Error(`Fish listing "${fishListing.name}" is not available for purchase`);
+      }
+
+      if (fishListing.quantity_available < cartItem.quantity) {
+        throw new Error(`Not enough stock for "${fishListing.name}". Only ${fishListing.quantity_available} units available.`);
+      }
+
+      const itemTotal = Number(fishListing.price) * cartItem.quantity;
+      totalCartAmount += itemTotal;
+
+      if (!itemsBySeller[sellerId]) {
+        itemsBySeller[sellerId] = {
+          seller: fishListing.users,
+          items: [],
+          totalAmount: 0
+        };
+      }
+
+      itemsBySeller[sellerId].items.push({
+        cartItemId: cartItem.id,
+        fishId: fishListing.id,
+        quantity: cartItem.quantity,
+        unitPrice: fishListing.price,
+        totalPrice: itemTotal,
+        fishListing: fishListing
+      });
+
+      itemsBySeller[sellerId].totalAmount += itemTotal;
+    }
+
+    // Calculate discounts and points
+    let totalDiscountAmount = 0;
+    let pointsUsed = 0;
+
+    if (couponCode) {
+      // Add coupon validation logic here
+      totalDiscountAmount = 0;
+    }
+
+    if (!isGuest && pointsToUse > 0 && userPointsBalance >= pointsToUse) {
+      pointsUsed = pointsToUse;
+      totalDiscountAmount += pointsUsed;
+    }
+
+    const shippingCost = Number(shippingDetails.shipping_cost) || 0;
+    const finalTotalAmount = totalCartAmount + shippingCost - totalDiscountAmount;
+
+    // STEP 3: Execute optimized transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const createdOrders = [];
+      const updatePromises = [];
+
+      // Batch create shipping and payment details
+      const sellerIds = Object.keys(itemsBySeller);
+      const shippingDetailsPromises = sellerIds.map(sellerId => {
+        const sellerShippingCost = shippingCost / sellerIds.length;
+        return tx.shipping_details.create({
+          data: {
+            carrier: shippingDetails.carrier || null,
+            shipping_cost: sellerShippingCost,
+            shipping_method: shippingDetails.shipping_method || 'standard',
+            estimated_delivery: shippingDetails.estimated_delivery || null,
+            shipping_notes: {
+              ...shippingDetails.shipping_notes,
+              seller_id: sellerId,
+              original_shipping_cost: shippingCost
+            }
+          }
+        });
+      });
+
+      const paymentDetailsPromises = sellerIds.map(sellerId => {
+        return tx.payment_details.create({
+          data: {
+            payment_method: paymentDetails.paymentMethod,
+            transaction_id: `${paymentDetails.transactionId}_${sellerId}`,
+            status: 'pending',
+            payment_date: new Date(),
+            payment_metadata: {
+              ...paymentDetails.metadata,
+              seller_id: sellerId,
+              original_transaction_id: paymentDetails.transactionId
+            }
+          }
+        });
+      });
+
+      // Execute all shipping and payment details creation in parallel
+      const [shippingRecords, paymentRecords] = await Promise.all([
+        Promise.all(shippingDetailsPromises),
+        Promise.all(paymentDetailsPromises)
+      ]);
+
+      // Create orders and order items
+      let orderIndex = 0;
+      for (const [sellerId, sellerData] of Object.entries(itemsBySeller)) {
+        const sellerAmountRatio = sellerData.totalAmount / totalCartAmount;
+        const sellerDiscountAmount = totalDiscountAmount * sellerAmountRatio;
+        const sellerPointsUsed = Math.floor(pointsUsed * sellerAmountRatio);
+        const sellerShippingCost = shippingCost / sellerIds.length;
+        const sellerFinalAmount = sellerData.totalAmount + sellerShippingCost - sellerDiscountAmount;
+        const pointsEarned = Math.floor(sellerFinalAmount * 0.02);
+
+        // Create order
+        const order = await tx.orders.create({
+          data: {
+            user_id: orderUserId,
+            total_amount: sellerFinalAmount,
+            status: 'pending',
+            shipping_details_id: shippingRecords[orderIndex].id,
+            payment_details_id: paymentRecords[orderIndex].id,
+            points_earned: pointsEarned,
+            points_used: sellerPointsUsed,
+            discount_amount: sellerDiscountAmount,
+            coupon_code: couponCode || null,
+            order_notes: orderNotes ? `${orderNotes} | Seller: ${sellerId}` : `Seller: ${sellerId}`
+          }
+        });
+
+        // Batch create order items
+        const orderItemsData = sellerData.items.map(item => ({
+          order_id: order.id,
+          fish_listing_id: item.fishId,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          total_price: item.totalPrice
+        }));
+
+        const orderItems = await tx.order_items.createMany({
+          data: orderItemsData
+        });
+
+        // Batch update fish listing quantities
+        for (const item of sellerData.items) {
+          updatePromises.push(
+            tx.fish_listings.update({
+              where: { id: item.fishId },
+              data: {
+                quantity_available: {
+                  decrement: item.quantity
+                }
+              }
+            })
+          );
+        }
+
+        createdOrders.push({
+          order,
+          orderItems,
+          shippingDetails: shippingRecords[orderIndex],
+          paymentDetails: paymentRecords[orderIndex],
+          seller: sellerData.seller,
+          pointsEarned
+        });
+
+        orderIndex++;
+      }
+
+      // Execute all fish listing updates in parallel
+      await Promise.all(updatePromises);
+
+      // Update user points balance
+      if (!isGuest) {
+        const totalPointsEarned = createdOrders.reduce((sum, order) => sum + order.pointsEarned, 0);
         
-//         // Update existing user with guest info if needed
-//         await tx.users.update({
-//           where: { id: existingUser.id },
-//           data: {
-//             full_name: guestInfo.fullName,
-//             phone_number: guestInfo.phoneNumber || existingUser.phone_number
-//           }
-//         });
-//       } else {
-//         // Create a new guest user
-//         const newUser = await tx.users.create({
-//           data: {
-//             email: guestInfo.email,
-//             full_name: guestInfo.fullName,
-//             phone_number: guestInfo.phoneNumber || null,
-//             password_hash: 'GUEST_USER', // Mark as guest user
-//             user_type: 'customer',
-//             email_verified: false,
-//             phone_verified: false,
-//             points_balance: 0
-//           }
-//         });
-//         guestUserId = newUser.id;
-//       }
+        if (pointsUsed > 0 || totalPointsEarned > 0) {
+          await tx.users.update({
+            where: { id: orderUserId },
+            data: {
+              points_balance: {
+                increment: totalPointsEarned - pointsUsed
+              }
+            }
+          });
+        }
+      }
 
-//       // Validate fish listings and calculate total
-//       let totalAmount = 0;
-//       const validatedItems = [];
+      // Clean up cart
+      if (!isGuest && cartId) {
+        const cartItemIds = itemsToCheckout.map(item => item.id);
+        await tx.cart_items.deleteMany({
+          where: { id: { in: cartItemIds } }
+        });
 
-//       for (const item of orderItems) {
-//         const fishListing = await tx.fish_listings.findUnique({
-//           where: { id: item.fishId }
-//         });
+        const remainingCartItems = await tx.cart_items.count({
+          where: { cart_id: cartId }
+        });
 
-//         if (!fishListing) {
-//           throw new Error(`Fish listing with ID ${item.fishId} not found`);
-//         }
+        if (remainingCartItems === 0) {
+          await tx.shopping_carts.update({
+            where: { id: cartId },
+            data: { is_active: false }
+          });
+        }
+      }
 
-//         if (fishListing.listing_status !== 'active') {
-//           throw new Error(`Fish listing "${fishListing.name}" is not available for purchase`);
-//         }
+      return {
+        orders: createdOrders,
+        totalAmount: finalTotalAmount,
+        totalPointsEarned: createdOrders.reduce((sum, order) => sum + order.pointsEarned, 0),
+        pointsUsed,
+        totalDiscountAmount,
+        itemsCheckedOut: itemsToCheckout.length,
+        sellersCount: sellerIds.length
+      };
+    }, {
+      timeout: 15000, // 15 seconds timeout
+      maxWait: 5000
+    });
 
-//         if (fishListing.quantity_available < item.quantity) {
-//           throw new Error(`Not enough stock for "${fishListing.name}". Only ${fishListing.quantity_available} units available.`);
-//         }
+    // Send success response
+    return res.status(201).json({
+      success: true,
+      message: 'Cart checkout completed successfully',
+      data: {
+        orderIds: result.orders.map(order => order.order.id),
+        orders: result.orders.map(order => ({
+          orderId: order.order.id,
+          orderStatus: order.order.status,
+          totalAmount: order.order.total_amount,
+          estimatedDelivery: order.shippingDetails.estimated_delivery,
+          pointsEarned: order.pointsEarned,
+          seller: order.seller ? {
+            id: order.seller.id,
+            businessName: order.seller.business_name,
+            displayName: order.seller.display_name
+          } : null,
+          itemCount: order.orderItems.length || 0
+        })),
+        summary: {
+          totalAmount: result.totalAmount,
+          totalPointsEarned: result.totalPointsEarned,
+          pointsUsed: result.pointsUsed,
+          totalDiscount: result.totalDiscountAmount,
+          itemsCheckedOut: result.itemsCheckedOut,
+          sellersCount: result.sellersCount,
+          isGuestOrder: isGuest
+        }
+      }
+    });
 
-//         const itemTotal = fishListing.price * item.quantity;
-//         totalAmount += Number(itemTotal);
-
-//         validatedItems.push({
-//           fishId: item.fishId,
-//           quantity: item.quantity,
-//           unitPrice: fishListing.price,
-//           totalPrice: itemTotal,
-//           fishListing
-//         });
-//       }
-
-//       // Apply coupon discount if provided
-//       let discountAmount = 0;
-//       if (couponCode) {
-//         // Add your coupon validation logic here
-//         // For now, we'll just set discount to 0
-//         discountAmount = 0;
-//       }
-
-//       // Add shipping cost to total
-//       const shippingCost = shippingDetails.shipping_cost || 0;
-//       const finalTotal = totalAmount + Number(shippingCost) - discountAmount;
-
-//       // Create shipping details record
-//       const shippingRecord = await tx.shipping_details.create({
-//         data: {
-//           carrier: shippingDetails.carrier || null,
-//           shipping_cost: shippingCost,
-//           shipping_method: shippingDetails.shipping_method || 'standard',
-//           estimated_delivery: shippingDetails.estimated_delivery || null,
-//           shipping_notes: shippingDetails.shipping_notes || {}
-//         }
-//       });
-
-//       // Create payment details record
-//       const paymentRecord = await tx.payment_details.create({
-//         data: {
-//           payment_method: paymentDetails.paymentMethod,
-//           transaction_id: paymentDetails.transactionId || null,
-//           status: 'pending',
-//           payment_date: new Date(),
-//           payment_metadata: paymentDetails.metadata || {}
-//         }
-//       });
-
-//       // Calculate points to be earned (2% of total amount) - guests can still earn points
-//       const pointsEarned = Math.floor(finalTotal * 0.02);
-
-//       // Create order
-//       const order = await tx.orders.create({
-//         data: {
-//           user_id: guestUserId,
-//           total_amount: finalTotal,
-//           status: 'pending',
-//           shipping_details_id: shippingRecord.id,
-//           payment_details_id: paymentRecord.id,
-//           points_earned: pointsEarned,
-//           points_used: 0, // Guests cannot use points
-//           discount_amount: discountAmount,
-//           coupon_code: couponCode || null,
-//           order_notes: orderNotes || null
-//         }
-//       });
-
-//       // Create order items and update fish listing quantities
-//       const orderItemsData = [];
-//       for (const item of validatedItems) {
-//         // Create order item
-//         const orderItem = await tx.order_items.create({
-//           data: {
-//             order_id: order.id,
-//             fish_listing_id: item.fishId,
-//             quantity: item.quantity,
-//             unit_price: item.unitPrice,
-//             total_price: item.totalPrice
-//           }
-//         });
-
-//         orderItemsData.push(orderItem);
-
-//         // Update fish listing quantity
-//         await tx.fish_listings.update({
-//           where: { id: item.fishId },
-//           data: {
-//             quantity_available: {
-//               decrement: item.quantity
-//             }
-//           }
-//         });
-//       }
-
-//       // Update user points balance with earned points
-//       if (pointsEarned > 0) {
-//         await tx.users.update({
-//           where: { id: guestUserId },
-//           data: {
-//             points_balance: {
-//               increment: pointsEarned
-//             }
-//           }
-//         });
-//       }
-
-//       return {
-//         order,
-//         orderItems: orderItemsData,
-//         shippingDetails: shippingRecord,
-//         paymentDetails: paymentRecord,
-//         guestUserId
-//       };
-//     });
-
-//     // Send success response
-//     return res.status(201).json({
-//       success: true,
-//       message: 'Guest order placed successfully',
-//       data: {
-//         orderId: result.order.id,
-//         orderStatus: result.order.status,
-//         totalAmount: result.order.total_amount,
-//         estimatedDelivery: result.shippingDetails.estimated_delivery,
-//         pointsEarned: result.order.points_earned,
-//         isGuestOrder: true,
-//         guestInfo: {
-//           email: guestInfo.email,
-//           fullName: guestInfo.fullName,
-//           phoneNumber: guestInfo.phoneNumber
-//         }
-//       }
-//     });
-
-//   } catch (error) {
-//     console.error('Error placing guest order:', error);
+  } catch (error) {
+    console.error('Error during cart checkout:', error);
     
-//     // Handle specific error types
-//     if (error.message.includes('not found') || error.message.includes('not available') || error.message.includes('Not enough stock')) {
-//       return res.status(400).json({
-//         success: false,
-//         message: error.message
-//       });
-//     }
+    if (error.message.includes('not found') || 
+        error.message.includes('not available') || 
+        error.message.includes('Not enough stock') ||
+        error.message.includes('cart') ||
+        error.message.includes('empty')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
 
-//     return res.status(500).json({
-//       success: false,
-//       message: 'An error occurred while placing the guest order',
-//       error: error.message
-//     });
-//   }
-// };
-
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred during cart checkout',
+      error: error.message
+    });
+  }
+};

@@ -29,7 +29,8 @@ export const verifyEmail = async (req, res) => {
 
         const user = await prisma.users.findUnique({
             where: {
-                email: email
+                email: email,
+                user_type: 'customer'
             }
         });
 
@@ -65,7 +66,7 @@ export const verifyEmail = async (req, res) => {
 // Confirm verification code
 export const confirmVerificationCode = async (req, res) => {
 
-    const { token, code } = req.body;
+    const { token, code} = req.body;
     console.log(token, code)
 
     if (!token && !code) {
@@ -101,19 +102,49 @@ export const createProfile = async (req, res) => {
     try {
         // Using Prisma transaction to ensure all operations succeed or fail together
         const result = await prisma.$transaction(async (prisma) => {
-            // Create user
-            const createdUser = await prisma.users.create({
-                data: {
-                    email: user.email,
-                    password_hash: hashedPassword,
-                    full_name: user.fullName,
-                    phone_number: user.phone,
-                    user_type: 'customer',
-                    email_verified: false,
-                    phone_verified: true,
-                    profile_picture_url: user.profileImage,
+            // Check if user already exists with user_type 'guest'
+            const existingUser = await prisma.users.findUnique({
+                where: {
+                    email: user.email
                 }
             });
+
+            let createdUser;
+
+            if (existingUser && existingUser.user_type === 'guest') {
+                // Update existing guest user to customer
+                createdUser = await prisma.users.update({
+                    where: {
+                        id: existingUser.id
+                    },
+                    data: {
+                        password_hash: hashedPassword,
+                        full_name: user.fullName,
+                        phone_number: user.phone,
+                        user_type: 'customer',
+                        email_verified: false,
+                        phone_verified: true,
+                        profile_picture_url: user.profileImage,
+                    }
+                });
+            } else if (existingUser && existingUser.user_type !== 'guest') {
+                // User already exists and is not a guest - throw error
+                throw new Error('User already exists with this email address');
+            } else {
+                // Create new user
+                createdUser = await prisma.users.create({
+                    data: {
+                        email: user.email,
+                        password_hash: hashedPassword,
+                        full_name: user.fullName,
+                        phone_number: user.phone,
+                        user_type: 'customer',
+                        email_verified: false,
+                        phone_verified: true,
+                        profile_picture_url: user.profileImage,
+                    }
+                });
+            }
 
             // Create user address
             const userAddress = await prisma.user_addresses.create({
@@ -171,6 +202,15 @@ export const createProfile = async (req, res) => {
 
     } catch (err) {
         console.log('Error creating profile: ', err);
+        
+        // Handle specific error for existing non-guest user
+        if (err.message === 'User already exists with this email address') {
+            return res.status(409).json({
+                success: false,
+                message: 'User already exists with this email address'
+            });
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Error creating user profile'

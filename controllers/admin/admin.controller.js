@@ -87,3 +87,4 @@ export const getFishCategoriesWithCount = async (req, res) => {
         });
     }
 };
+
