@@ -27,7 +27,8 @@
     "node-cron": "^4.1.0",
     "nodemailer": "^7.0.3",
     "nodemon": "^3.1.9",
-    "pg": "^8.14.1"
+    "pg": "^8.14.1",
+    "razorpay": "^2.9.6"
   },
   "devDependencies": {
     "prisma": "^6.6.0"
