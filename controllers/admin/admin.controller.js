@@ -88,3 +88,98 @@ export const getFishCategoriesWithCount = async (req, res) => {
     }
 };
 
+export const setFeaturedCategories = async (req, res) => {
+    try {
+        const { categoryId, feature } = req.body.category;
+
+        console.log('Reached set featured : ', req.body.category)
+
+        // Validate required fields
+        if (!categoryId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Category ID is required',
+                data: null
+            });
+        }
+
+        // Validate feature field (should be boolean)
+        if (typeof feature !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                error: 'Feature field must be a boolean value (true or false)',
+                data: null
+            });
+        }
+
+        // Check if category exists
+        const existingCategory = await prisma.fish_categories.findUnique({
+            where: {
+                id: categoryId
+            },
+            select: {
+                id: true,
+                name: true,
+                feature: true
+            }
+        });
+
+        if (!existingCategory) {
+            return res.status(404).json({
+                success: false,
+                error: 'Fish category not found',
+                data: null
+            });
+        }
+
+        // Update the category feature status
+        const updatedCategory = await prisma.fish_categories.update({
+            where: {
+                id: categoryId
+            },
+            data: {
+                feature: feature,
+                updated_at: new Date()
+            },
+            select: {
+                id: true,
+                name: true,
+                description: true,
+                image_url: true,
+                parent_category_id: true,
+                feature: true,
+                created_at: true,
+                updated_at: true
+            }
+        });
+
+        // Transform to camelCase if you have the utility function
+        const data = transformToCamelCase(updatedCategory);
+
+        console.log(`Fish category feature status updated successfully: ${existingCategory.name} - Feature: ${feature}`);
+
+        res.status(200).json({
+            success: true,
+            message: `Category "${existingCategory.name}" feature status updated to ${feature}`,
+            data: data
+        });
+
+    } catch (error) {
+        console.error('Error updating fish category feature status:', error);
+        
+        // Handle specific Prisma errors
+        if (error.code === 'P2025') {
+            return res.status(404).json({
+                success: false,
+                error: 'Fish category not found',
+                data: null
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error while updating category feature status',
+            data: null
+        });
+    }
+};

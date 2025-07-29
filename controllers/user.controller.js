@@ -34,9 +34,9 @@ export const verifyEmail = async (req, res) => {
             }
         });
 
-        if (user){
-            return res.status(500).json({success: false, message: 'User already exists. Please login.'})
-        } 
+        if (user) {
+            return res.status(500).json({ success: false, message: 'User already exists. Please login.' })
+        }
 
         // Generate a verification code for the email display
         const verificationCode = generateVerificationToken();
@@ -66,7 +66,7 @@ export const verifyEmail = async (req, res) => {
 // Confirm verification code
 export const confirmVerificationCode = async (req, res) => {
 
-    const { token, code} = req.body;
+    const { token, code } = req.body;
     console.log(token, code)
 
     if (!token && !code) {
@@ -202,7 +202,7 @@ export const createProfile = async (req, res) => {
 
     } catch (err) {
         console.log('Error creating profile: ', err);
-        
+
         // Handle specific error for existing non-guest user
         if (err.message === 'User already exists with this email address') {
             return res.status(409).json({
@@ -210,7 +210,7 @@ export const createProfile = async (req, res) => {
                 message: 'User already exists with this email address'
             });
         }
-        
+
         res.status(500).json({
             success: false,
             message: 'Error creating user profile'
@@ -262,7 +262,7 @@ export const logoutUser = async (req, res) => {
     try {
         const refreshToken = req.cookies.refreshToken;
 
-        console.log('logout refresh token : ',refreshToken)
+        console.log('logout refresh token : ', refreshToken)
 
         if (refreshToken) {
             // Delete the refresh token using Prisma
@@ -543,14 +543,14 @@ export const getCurrentUser = async (req, res) => {
             },
         });
 
-        console.log("DATA : ",data)
+        console.log("DATA : ", data)
 
         if (!data) {
             return res.status(404).json({ message: 'User not found' });
         }
-        
+
         const user = transformToCamelCase(data)
-        
+
         // console.log('user data :',user.shoppingCarts[0].cartItems[0])
 
         res.status(201).json(user);
@@ -960,9 +960,9 @@ export const ForgotPasswordVerifyEmail = async (req, res) => {
             }
         });
 
-        if (!user){
-            return res.status(500).json({success: false, message: "User doesn't exist. Please re-check the email address."})
-        } 
+        if (!user) {
+            return res.status(500).json({ success: false, message: "User doesn't exist. Please re-check the email address." })
+        }
 
         // Generate a verification code for the email display
         const verificationCode = generateVerificationToken();
@@ -996,9 +996,9 @@ export const ChangePassword = async (req, res) => {
 
         // Validate required fields
         if (!newPassword || !verificationToken) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Email, new password, and verification token are required' 
+            return res.status(400).json({
+                success: false,
+                message: 'Email, new password, and verification token are required'
             });
         }
 
@@ -1014,7 +1014,7 @@ export const ChangePassword = async (req, res) => {
         let decodedToken;
         try {
             decodedToken = verifyEmailVerificationToken(verificationToken);
-            
+
             // Check if the email in token matches the provided email
             if (!decodedToken.email) {
                 return res.status(400).json({
@@ -1038,7 +1038,7 @@ export const ChangePassword = async (req, res) => {
 
         if (!user) {
             return res.status(404).json({
-                success: false, 
+                success: false,
                 message: "User doesn't exist. Please re-check the email address."
             });
         }
@@ -1082,3 +1082,107 @@ export const ChangePassword = async (req, res) => {
         });
     }
 };
+
+// Get featured categories
+export const getFeaturedCategories = async (req, res) => {
+    try {
+        const featuredCategories = await prisma.fish_categories.findMany({
+            where: {
+                feature: true
+            },
+            include: {
+                fish_listings: {
+                    where: {
+                        listing_status: 'active',
+                        quantity_available: {
+                            gt: 0
+                        }
+                    },
+                    select: {
+                        id: true
+                    }
+                },
+                fish_categories: { // Parent category
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_url: true
+                    }
+                },
+                other_fish_categories: { // Child categories
+                    where: {
+                        feature: true // Only include featured child categories
+                    },
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        image_url: true,
+                        feature: true,
+                        created_at: true,
+                        updated_at: true,
+                        _count: {
+                            select: {
+                                fish_listings: {
+                                    where: {
+                                        listing_status: 'active',
+                                        quantity_available: {
+                                            gt: 0
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            orderBy: [
+                { name: 'asc' }
+            ]
+        });
+
+        // Transform data to include product count and full details
+        const featuredCategoriesWithDetails = featuredCategories.map(category => ({
+            id: category.id,
+            name: category.name,
+            description: category.description,
+            image_url: category.image_url,
+            parent_category_id: category.parent_category_id,
+            feature: category.feature,
+            created_at: category.created_at,
+            updated_at: category.updated_at,
+            product_count: category.fish_listings.length,
+            parent_category: category.fish_categories,
+            child_categories: category.other_fish_categories.map(child => ({
+                id: child.id,
+                name: child.name,
+                description: child.description,
+                image_url: child.image_url,
+                feature: child.feature,
+                created_at: child.created_at,
+                updated_at: child.updated_at,
+                product_count: child._count.fish_listings
+            }))
+        }));
+
+        const data = transformToCamelCase(featuredCategoriesWithDetails);
+
+        console.log("Featured fish categories fetched successfully");
+
+        res.status(200).json({
+            success: true,
+            data: data,
+            count: data.length,
+            message: "Featured categories retrieved successfully"
+        });
+    } catch (error) {
+        console.error('Error fetching featured fish categories:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            data: [],
+            message: "Failed to fetch featured categories"
+        });
+    }
+}
