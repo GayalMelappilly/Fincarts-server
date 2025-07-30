@@ -56,10 +56,10 @@ export const getFeaturedFishes = async (req, res) => {
             skip: 0
         });
 
-        
+
         const data = transformToCamelCase(featuredFishes);
-        
-        console.log("Featured fishes with seller details fetched successfully"); 
+
+        console.log("Featured fishes with seller details fetched successfully");
 
         res.status(200).json({
             success: true,
@@ -306,8 +306,10 @@ export const getFishesByCategoryName = async (req, res) => {
             }
         });
 
-        console.log('categorized : ', fishListings)
+        if (fishListings[0].name === 'White Oscar') console.log('categorized : ', fishListings[0])
         const data = transformToCamelCase(fishListings)
+        if (data[0].name === 'White Oscar') console.log('categorized : ', data[0])
+
 
 
         res.status(201).json({

@@ -18,24 +18,22 @@ const isPriceObject = (value) => {
 const convertPriceToNumber = (priceObj) => {
     const { s, e, d } = priceObj;
     
-    // Handle empty digits array
     if (!Array.isArray(d) || d.length === 0) {
         return 0;
     }
-    
-    // Combine digits into a number
-    let value = 0;
-    for (let i = 0; i < d.length; i++) {
-        value = value * 10 + d[i];
-    }
 
-    // Apply exponent
-    // value = e > 0 ? value * Math.pow(10, e) : value;
+    // Join all parts of d as a string
+    const digitsStr = d.join('');
+    const totalDigits = digitsStr.length;
 
-    
-    // Apply sign
-    return s === 1 ? value : -value;
+    // Calculate actual number using exponent
+    const floatVal = parseFloat(digitsStr) * Math.pow(10, e - totalDigits);
+
+    console.log('Finall value : ', floatVal*10)
+
+    return s === 1 ? floatVal*10 : -floatVal*10;
 };
+
 
 
 export const transformToCamelCase = (data) => {
