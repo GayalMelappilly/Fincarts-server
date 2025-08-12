@@ -306,10 +306,7 @@ export const getFishesByCategoryName = async (req, res) => {
             }
         });
 
-        if (fishListings[0].name === 'White Oscar') console.log('categorized : ', fishListings[0])
         const data = transformToCamelCase(fishListings)
-        if (data[0].name === 'White Oscar') console.log('categorized : ', data[0])
-
 
 
         res.status(201).json({
