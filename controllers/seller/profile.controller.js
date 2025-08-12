@@ -2,7 +2,7 @@ import { hashPassword, matchPassword } from "../../utils/bcrypt.js";
 import prisma from "../../utils/prisma.js";
 import { createAccessToken, createEmailVerificationToken, createRefreshToken, verifyEmailVerificationToken } from "../../services/token.services.js";
 import { generateVerificationToken } from "../../utils/generateVerificationCode.js";
-import { sendVerificationEmail } from "../../utils/sendMails.js";
+import { sendVerificationEmail } from "../../utils/sendVerificationMails.js";
 
 // Create profile
 export const sellerCreateProfile = async (req, res) => {
@@ -1127,6 +1127,557 @@ export const ChangeSellerPassword = async (req, res) => {
             success: false,
             message: 'Error updating seller password',
             error: error.message
+        });
+    }
+};
+
+
+// ____NATIVE SPECIFIC APIS____
+
+
+// Native login seller
+export const nativeLoginSeller = async (req, res) => {
+
+    const { identifier, password } = req.body;
+
+    console.log("LOGIN SELLER", identifier, password)
+
+    if (!identifier || !password) {
+        return res.status(400).json({
+            success: false,
+            message: 'Identifier and password are required'
+        });
+    }
+
+    try {
+        // Find the seller by email or phone
+        const seller = await prisma.sellers.findFirst({
+            where: {
+                OR: [
+                    { email: identifier },
+                    { phone: identifier }
+                ]
+            }
+        });
+
+        console.log('seller : ', seller)
+
+        if (!seller) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+
+        // Verify password
+        const isPasswordValid = await matchPassword(password, seller.password_hash);
+        if (!isPasswordValid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+        // Generate tokens
+        const accessToken = createAccessToken(seller.id);
+        const refreshToken = createRefreshToken(seller.id);
+
+        // Store refresh token in database
+        await prisma.refresh_tokens.create({
+            data: {
+                user_id: seller.id,
+                token: refreshToken,
+                expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            }
+        });
+
+        // Set refresh token as HTTP-only cookie
+        res.cookie('sellerRefreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        // Send response with access token and basic seller info
+        res.status(200).json({
+            success: true,
+            data: {
+                id: seller.id,
+                name: seller.business_name,
+                email: seller.email,
+                phone: seller.phone,
+                displayName: seller.display_name,
+                profileUrl: seller.logo_url,
+                accessToken,
+                refreshToken
+            }
+        });
+
+    } catch (error) {
+        console.error('Error during seller login:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Login failed due to server error'
+        });
+    }
+};
+
+// Native seller logout 
+export const nativeLogoutSeller = async (req, res) => {
+    try {
+        // Get the refresh token from cookies
+        const token = req.body.token
+
+        console.log("token: ", token)
+
+        // Delete the refresh token from database
+        await prisma.refresh_tokens.deleteMany({
+            where: {
+                token: token
+            }
+        });
+
+        // Clear the refresh token cookie
+        res.clearCookie('sellerRefreshToken', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict'
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Logout successful'
+        });
+    } catch (error) {
+        console.error('Error during seller logout:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Logout failed due to server error'
+        });
+    }
+}
+
+// Native get current seller
+export const nativeGetCurrentSeller = async (req, res) => {
+    const sellerId = req.params.id; // Assuming you have the seller ID from authentication middleware
+    console.log("SELLER ID:", sellerId);
+
+    try {
+        // Fetch seller data with all necessary nested relationships
+        const seller = await prisma.sellers.findUnique({
+            where: { id: sellerId },
+            include: {
+                seller_metrics: true,
+                seller_settings: {
+                    select: {
+                        auto_accept_orders: true,
+                        default_warranty_period: true,
+                        return_window: true,
+                        shipping_provider: true,
+                        min_order_value: true
+                    }
+                },
+                seller_payment_settings: {
+                    select: {
+                        payment_cycle: true,
+                        min_payout_amount: true
+                    }
+                },
+                // Get all seller addresses - we'll filter in code
+                seller_addresses: true,
+                seller_sales_history: {
+                    orderBy: { date: 'desc' },
+                    take: 7,
+                    select: {
+                        date: true,
+                        daily_sales: true,
+                        order_count: true,
+                        new_customers: true,
+                        cancellations: true
+                    }
+                }
+            }
+        });
+
+        if (!seller) {
+            return res.status(404).json({
+                success: false,
+                message: 'Seller not found'
+            });
+        }
+
+        // Get fish listings statistics
+        const [activeFishListings, topSellingFish, topFishListings, recentOrders] = await Promise.all([
+            // Count of active fish listings
+            prisma.fish_listings.count({
+                where: {
+                    seller_id: sellerId,
+                    listing_status: 'active'
+                }
+            }),
+
+            // Top selling fish products
+            prisma.fish_listings.findMany({
+                where: {
+                    seller_id: sellerId,
+                    listing_status: 'active'
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    price: true,
+                    quantity_available: true,
+                    images: true,
+                    _count: {
+                        select: {
+                            order_items: true
+                        }
+                    }
+                },
+                orderBy: {
+                    order_items: {
+                        _count: 'desc'
+                    }
+                },
+                take: 4
+            }),
+
+            // Top five fish listings (could be sorted by price, newest, featured, etc.)
+            prisma.fish_listings.findMany({
+                where: {
+                    seller_id: sellerId,
+                    listing_status: 'active'
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    price: true,
+                    quantity_available: true,
+                    images: true,
+                    is_featured: true,
+                    view_count: true,
+                    created_at: true,
+                    fish_categories: {
+                        select: {
+                            name: true
+                        }
+                    },
+                    _count: {
+                        select: {
+                            reviews: true
+                        }
+                    }
+                },
+                orderBy: [
+                    { is_featured: 'desc' },
+                    { view_count: 'desc' }
+                ]
+            }),
+
+            // Recent orders
+            prisma.orders.findMany({
+                where: {
+                    order_items: {
+                        some: {
+                            fish_listings: {
+                                seller_id: sellerId
+                            }
+                        }
+                    }
+                },
+                select: {
+                    id: true,
+                    total_amount: true,
+                    status: true,
+                    created_at: true,
+                    users: {
+                        select: {
+                            full_name: true
+                        }
+                    },
+                    order_items: {
+                        select: {
+                            quantity: true,
+                            unit_price: true,
+                            total_price: true,
+                            fish_listings: {
+                                select: {
+                                    name: true,
+                                    seller_id: true
+                                }
+                            }
+                        }
+                    }
+                },
+                orderBy: {
+                    created_at: 'desc'
+                }
+            })
+        ]);
+
+        // Calculate total revenue for the current month
+        const currentDate = new Date();
+        const currentMonth = currentDate.getMonth();
+        const currentYear = currentDate.getFullYear();
+
+        const currentMonthRevenue = seller.seller_sales_history
+            .filter(sale => {
+                const saleDate = new Date(sale.date);
+                return saleDate.getMonth() === currentMonth &&
+                    saleDate.getFullYear() === currentYear;
+            })
+            .reduce((sum, sale) => sum + Number(sale.daily_sales), 0);
+
+        // Calculate previous month revenue for comparison
+        const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+        const previousYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+        // Query for previous month revenue
+        const previousMonthSales = await prisma.seller_sales_history.findMany({
+            where: {
+                seller_id: sellerId,
+                date: {
+                    gte: new Date(previousYear, previousMonth, 1),
+                    lt: new Date(currentYear, currentMonth, 1)
+                }
+            },
+            select: {
+                daily_sales: true
+            }
+        });
+
+        const previousMonthRevenue = previousMonthSales
+            .reduce((sum, sale) => sum + Number(sale.daily_sales), 0);
+
+        // Calculate percentage change
+        const revenuePercentChange = previousMonthRevenue === 0
+            ? 100
+            : ((currentMonthRevenue - previousMonthRevenue) / previousMonthRevenue) * 100;
+
+        // Calculate total orders this month
+        const currentMonthOrders = seller.seller_sales_history
+            .filter(sale => {
+                const saleDate = new Date(sale.date);
+                return saleDate.getMonth() === currentMonth &&
+                    saleDate.getFullYear() === currentYear;
+            })
+            .reduce((sum, sale) => sum + Number(sale.order_count), 0);
+
+        // Calculate previous month's orders
+        const previousMonthOrders = previousMonthSales
+            .reduce((sum, sale) => sum + Number(sale.order_count || 0), 0);
+
+        // Calculate order percentage change
+        const orderPercentChange = previousMonthOrders === 0
+            ? 100
+            : ((currentMonthOrders - previousMonthOrders) / previousMonthOrders) * 100;
+
+        // Calculate total customers this month
+        const currentMonthCustomers = seller.seller_sales_history
+            .filter(sale => {
+                const saleDate = new Date(sale.date);
+                return saleDate.getMonth() === currentMonth &&
+                    saleDate.getFullYear() === currentYear;
+            })
+            .reduce((sum, sale) => sum + Number(sale.new_customers || 0), 0);
+
+        // Calculate previous month's customers
+        const previousMonthCustomers = previousMonthSales
+            .reduce((sum, sale) => sum + Number(sale.new_customers || 0), 0);
+
+        // Calculate customer percentage change
+        const customerPercentChange = previousMonthCustomers === 0
+            ? 100
+            : ((currentMonthCustomers - previousMonthCustomers) / previousMonthCustomers) * 100;
+
+        // Calculate average order value
+        const avgOrderValue = currentMonthOrders === 0
+            ? 0
+            : currentMonthRevenue / currentMonthOrders;
+
+        // Calculate previous month's average order value
+        const prevAvgOrderValue = previousMonthOrders === 0
+            ? 0
+            : previousMonthRevenue / previousMonthOrders;
+
+        // Calculate average order value percentage change
+        const avgOrderValuePercentChange = prevAvgOrderValue === 0
+            ? 100
+            : ((avgOrderValue - prevAvgOrderValue) / prevAvgOrderValue) * 100;
+
+        // Find the primary address based on what's available
+        let primaryAddress = null;
+
+        if (seller.seller_addresses) {
+            if (Array.isArray(seller.seller_addresses)) {
+                // If it's an array, find the default address or use the first one
+                primaryAddress = seller.seller_addresses.find(addr => addr.is_default === true) ||
+                    (seller.seller_addresses.length > 0 ? seller.seller_addresses[0] : null);
+            } else if (typeof seller.seller_addresses === 'object') {
+                // If it's an object (single address)
+                primaryAddress = seller.seller_addresses;
+            }
+        }
+
+        // Format sales history for chart display
+        const formattedSalesHistory = seller.seller_sales_history.map(sale => ({
+            month: new Date(sale.date).toLocaleString('default', { month: 'short' }),
+            sales: Number(sale.daily_sales)
+        })).reverse();
+
+        // Format top selling fish products
+        const formattedTopSellingFish = topSellingFish.map(fish => ({
+            id: fish.id,
+            name: fish.name,
+            stock: fish.quantity_available,
+            sold: fish._count.order_items,
+            image: fish.images && fish.images.length > 0 ? fish.images[0] : null
+        }));
+
+        // Format top fish listings
+        const formattedTopFishListings = topFishListings.map(fish => ({
+            id: fish.id,
+            name: fish.name,
+            description: fish.description,
+            price: Number(fish.price),
+            stock: fish.quantity_available,
+            images: fish.images,
+            category: fish.fish_categories?.name || 'Uncategorized',
+            isFeatured: fish.is_featured,
+            viewCount: fish.view_count,
+            reviewCount: fish._count.reviews,
+            createdAt: fish.created_at
+        }));
+
+        // Format recent orders
+        const formattedRecentOrders = recentOrders
+            .filter(order => {
+                // Filter orders that have at least one item from this seller
+                return order.order_items.some(item =>
+                    item.fish_listings && item.fish_listings.seller_id === sellerId
+                );
+            })
+            .map(order => ({
+                id: order.id,
+                orderId: `#ORD-${order.id.substring(0, 4)}`,
+                customer: order.users.full_name,
+                date: new Date(order.created_at).toLocaleDateString('en-US', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                }),
+                amount: Number(order.total_amount),
+                status: order.status.charAt(0).toUpperCase() + order.status.slice(1).toLowerCase()
+            }));
+
+        // Format the response with all the data needed for frontend
+        const formattedSellerData = {
+            id: seller.id,
+            businessInfo: {
+                businessName: seller.business_name,
+                businessType: seller.business_type,
+                legalBusinessName: seller.legal_business_name,
+                displayName: seller.display_name,
+                storeDescription: seller.store_description,
+                logoUrl: seller.logo_url,
+                websiteUrl: seller.website_url,
+                gstin: seller.gstin,
+                status: seller.status
+            },
+            contactInfo: {
+                email: seller.email,
+                phone: seller.phone,
+                alternatePhone: seller.alternate_phone
+            },
+            address: primaryAddress ? {
+                addressLine1: primaryAddress.address_line1,
+                addressLine2: primaryAddress.address_line2,
+                landmark: primaryAddress.landmark,
+                addressType: primaryAddress.address_type,
+                location: primaryAddress.seller_locations || {
+                    city: primaryAddress.city,
+                    state: primaryAddress.state,
+                    country: primaryAddress.country,
+                    pinCode: primaryAddress.pin_code
+                }
+            } : null,
+            metrics: {
+                // Static metrics
+                totalSales: seller.seller_metrics ? seller.seller_metrics.total_sales : 0,
+                totalOrders: seller.seller_metrics ? seller.seller_metrics.total_orders : 0,
+                avgRating: seller.seller_metrics ? seller.seller_metrics.avg_rating : 0,
+                totalListings: seller.seller_metrics ? seller.seller_metrics.total_listings : 0,
+                activeListings: activeFishListings,
+                lastCalculatedAt: seller.seller_metrics ? seller.seller_metrics.last_calculated_at : null,
+
+                // Dashboard metrics for cards
+                dashboard: {
+                    revenue: {
+                        total: currentMonthRevenue.toFixed(2),
+                        percentChange: revenuePercentChange.toFixed(1),
+                        trend: revenuePercentChange >= 0 ? 'up' : 'down'
+                    },
+                    orders: {
+                        total: currentMonthOrders,
+                        percentChange: orderPercentChange.toFixed(1),
+                        trend: orderPercentChange >= 0 ? 'up' : 'down'
+                    },
+                    customers: {
+                        total: currentMonthCustomers,
+                        percentChange: customerPercentChange.toFixed(1),
+                        trend: customerPercentChange >= 0 ? 'up' : 'down'
+                    },
+                    avgOrderValue: {
+                        total: avgOrderValue.toFixed(2),
+                        percentChange: avgOrderValuePercentChange.toFixed(1),
+                        trend: avgOrderValuePercentChange >= 0 ? 'up' : 'down'
+                    }
+                }
+            },
+            settings: seller.seller_settings ? {
+                autoAcceptOrders: seller.seller_settings.auto_accept_orders,
+                defaultWarrantyPeriod: seller.seller_settings.default_warranty_period,
+                returnWindow: seller.seller_settings.return_window,
+                shippingProvider: seller.seller_settings.shipping_provider,
+                minOrderValue: seller.seller_settings.min_order_value
+            } : null,
+            paymentSettings: seller.seller_payment_settings ? {
+                paymentCycle: seller.seller_payment_settings.payment_cycle,
+                minPayoutAmount: seller.seller_payment_settings.min_payout_amount
+            } : null,
+            recentSales: seller.seller_sales_history.map(sale => ({
+                date: sale.date,
+                dailySales: sale.daily_sales,
+                orderCount: sale.order_count,
+                newCustomers: sale.new_customers,
+                cancellations: sale.cancellations
+            })),
+            salesChartData: formattedSalesHistory,
+            topSellingProducts: formattedTopSellingFish,
+            topFishListings: formattedTopFishListings,
+            recentOrders: formattedRecentOrders,
+            commissionRate: seller.commission_rate,
+            createdAt: seller.created_at,
+            updatedAt: seller.updated_at
+        };
+
+        return res.status(200).json({
+            success: true,
+            data: formattedSellerData,
+            message: 'Seller data retrieved successfully'
+        });
+
+    } catch (error) {
+        console.error('Error fetching seller profile:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Failed to retrieve seller data'
         });
     }
 };

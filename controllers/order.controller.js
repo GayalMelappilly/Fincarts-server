@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import Razorpay from 'razorpay'
 import crypto from 'crypto';
 import { configDotenv } from "dotenv";
+import { sendNotificationEmail } from '../utils/sendNotificationMails.js';
 configDotenv();
 
 const prisma = new PrismaClient();
@@ -35,7 +36,7 @@ export const createRazorpayOrder = async (req, res) => {
     };
 
     const order = await razorpay.orders.create(options);
-    
+
     console.log('Razorpay order created:', order.id);
 
     res.json({
@@ -74,7 +75,8 @@ export const verifyRazorpayPayment = (razorpay_order_id, razorpay_payment_id, ra
   }
 };
 
-// Updated Place order function with Razorpay integration
+
+
 export const placeOrder = async (req, res) => {
   console.log("Reached place order with Razorpay integration.");
 
@@ -133,7 +135,7 @@ export const placeOrder = async (req, res) => {
 
     // Verify Razorpay payment signature
     const isPaymentValid = verifyRazorpayPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
-    
+
     if (!isPaymentValid) {
       console.log('Razorpay payment verification failed');
       return res.status(400).json({
@@ -201,7 +203,7 @@ export const placeOrder = async (req, res) => {
       });
     }
 
-    // Start transaction
+    // Start transaction with increased timeout for order processing
     const result = await prisma.$transaction(async (tx) => {
       let orderUserId = userId;
 
@@ -229,13 +231,22 @@ export const placeOrder = async (req, res) => {
         }
       }
 
+      const customerDetails = await tx.users.findUnique({
+        where: { id: orderUserId }
+      });
+
       // Validate fish listings and calculate total
       let totalAmount = 0;
       const validatedItems = [];
+      const sellerIds = new Set(); // Track unique sellers
 
+      // Validate all order items
       for (const item of orderItems) {
         const fishListing = await tx.fish_listings.findUnique({
-          where: { id: item.fishId }
+          where: { id: item.fishId },
+          include: {
+            users: true // Include seller details
+          }
         });
 
         if (!fishListing) {
@@ -258,9 +269,20 @@ export const placeOrder = async (req, res) => {
           quantity: item.quantity,
           unitPrice: fishListing.price,
           totalPrice: itemTotal,
-          fishListing
+          fishListing,
+          sellerId: fishListing.seller_id
         });
+
+        // Track unique sellers
+        if (fishListing.seller_id) {
+          sellerIds.add(fishListing.seller_id);
+        }
       }
+
+      // Get seller details for notifications
+      const sellerDetails = await tx.sellers.findUnique({
+        where: { id: validatedItems[0].sellerId }
+      });
 
       // Apply coupon discount if provided
       let discountAmount = 0;
@@ -404,11 +426,40 @@ export const placeOrder = async (req, res) => {
         order,
         orderItems: orderItemsData,
         shippingDetails: shippingRecord,
-        paymentDetails: paymentRecord
+        paymentDetails: paymentRecord,
+        itemDetails: validatedItems[0].fishListing,
+        sellerEmail: sellerDetails?.email,
+        customerDetails: customerDetails,
+        validatedItems,
+        calculatedTotal,
+        sellerIds: Array.from(sellerIds),
+        orderUserId
       };
+    }, {
+      timeout: 10000, // 10 second timeout for main transaction
     });
 
-    console.log('Order placed successfully:', result.order.id);
+    // Update seller metrics and sales history after successful order creation
+    // This is done outside the main transaction to prevent timeouts
+    try {
+      await updateSellerMetricsAndSalesHistoryAsync(
+        result.orderUserId, 
+        result.sellerIds, 
+        result.validatedItems, 
+        result.calculatedTotal
+      );
+    } catch (metricsError) {
+      console.error('Error updating seller metrics (order still successful):', metricsError);
+      // Don't fail the entire order if metrics update fails
+    }
+
+    console.log('Order placed successfully:', result);
+
+    // Send notification emails
+    if (result.sellerEmail) {
+      await sendNotificationEmail(result.sellerEmail, result, 'customer', 'seller');
+    }
+    await sendNotificationEmail(result.customerDetails.email, result, result.customerDetails.full_name, 'customer');
 
     // Send success response
     return res.status(201).json({
@@ -429,10 +480,10 @@ export const placeOrder = async (req, res) => {
     console.error('Error placing order:', error);
 
     // Handle specific error types
-    if (error.message.includes('not found') || 
-        error.message.includes('not available') || 
-        error.message.includes('Not enough stock') ||
-        error.message.includes('Payment amount mismatch')) {
+    if (error.message.includes('not found') ||
+      error.message.includes('not available') ||
+      error.message.includes('Not enough stock') ||
+      error.message.includes('Payment amount mismatch')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -447,12 +498,218 @@ export const placeOrder = async (req, res) => {
   }
 };
 
+const updateSellerMetricsAndSalesHistoryAsync = async (userId, sellerIds, validatedItems, totalAmount) => {
+  try {
+    // Check if this is a new customer for each seller
+    const isNewCustomerMap = await checkIfNewCustomerAsync(userId, sellerIds);
+    
+    // Update seller metrics and sales history
+    await updateSellerMetricsAndSalesHistory(validatedItems, totalAmount, isNewCustomerMap);
+    
+    console.log('Seller metrics updated successfully');
+  } catch (error) {
+    console.error('Failed to update seller metrics:', error);
+    throw error;
+  }
+};
+
+const checkIfNewCustomerAsync = async (userId, sellerIds) => {
+  const newCustomerMap = {};
+
+  // Use Promise.all for parallel processing
+  const customerChecks = sellerIds.map(async (sellerId) => {
+    // Check if this customer has previously ordered from this seller
+    const previousOrders = await prisma.orders.findFirst({
+      where: {
+        user_id: userId,
+        order_items: {
+          some: {
+            fish_listings: {
+              seller_id: sellerId
+            }
+          }
+        },
+        status: {
+          in: ['completed', 'delivered', 'pending', 'processing']
+        }
+      }
+    });
+
+    return { sellerId, isNew: !previousOrders };
+  });
+
+  const results = await Promise.all(customerChecks);
+  
+  results.forEach(({ sellerId, isNew }) => {
+    newCustomerMap[sellerId] = isNew;
+  });
+
+  return newCustomerMap;
+};
+
+const updateSellerMetricsAndSalesHistory = async (validatedItems, totalAmount, isNewCustomerMap) => {
+  // Group items by seller
+  const sellerItemsMap = validatedItems.reduce((acc, item) => {
+    const sellerId = item.sellerId;
+    if (!sellerId) return acc;
+
+    if (!acc[sellerId]) {
+      acc[sellerId] = {
+        items: [],
+        totalSales: 0,
+        totalQuantity: 0
+      };
+    }
+
+    acc[sellerId].items.push(item);
+    acc[sellerId].totalSales += Number(item.totalPrice);
+    acc[sellerId].totalQuantity += item.quantity;
+
+    return acc;
+  }, {});
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Start of day
+
+  // Process each seller in parallel for better performance
+  const sellerUpdates = Object.entries(sellerItemsMap).map(async ([sellerId, sellerData]) => {
+    const { totalSales } = sellerData;
+    const isNewCustomer = isNewCustomerMap[sellerId] || false;
+
+    try {
+      // Use a separate transaction for each seller to avoid conflicts
+      await prisma.$transaction(async (tx) => {
+        // Update or create seller_metrics
+        await tx.seller_metrics.upsert({
+          where: { seller_id: sellerId },
+          update: {
+            total_sales: {
+              increment: totalSales
+            },
+            total_orders: {
+              increment: 1
+            },
+            last_calculated_at: new Date()
+          },
+          create: {
+            seller_id: sellerId,
+            total_sales: totalSales,
+            total_orders: 1,
+            avg_rating: 0,
+            total_listings: 0,
+            active_listings: 0,
+            last_calculated_at: new Date()
+          }
+        });
+
+        // Update or create daily sales history
+        // First try to find existing record
+        const existingSalesHistory = await tx.seller_sales_history.findFirst({
+          where: {
+            seller_id: sellerId,
+            date: today
+          }
+        });
+
+        if (existingSalesHistory) {
+          // Update existing record
+          await tx.seller_sales_history.update({
+            where: {
+              uuid_id: existingSalesHistory.uuid_id
+            },
+            data: {
+              daily_sales: {
+                increment: totalSales
+              },
+              order_count: {
+                increment: 1
+              },
+              new_customers: {
+                increment: isNewCustomer ? 1 : 0
+              }
+            }
+          });
+        } else {
+          // Create new record
+          await tx.seller_sales_history.create({
+            data: {
+              seller_id: sellerId,
+              date: today,
+              daily_sales: totalSales,
+              order_count: 1,
+              new_customers: isNewCustomer ? 1 : 0,
+              cancellations: 0
+            }
+          });
+        }
+      }, {
+        timeout: 8000 // 8 second timeout for metrics updates
+      });
+
+      // Update listing counts and average rating outside transaction for performance
+      await updateSellerListingStats(sellerId);
+
+      console.log(`Updated metrics for seller ${sellerId}: Sales +${totalSales}, Orders +1, New Customer: ${isNewCustomer}`);
+
+    } catch (error) {
+      console.error(`Error updating seller metrics for seller ${sellerId}:`, error);
+      // Continue with other sellers even if one fails
+    }
+  });
+
+  // Wait for all seller updates to complete
+  await Promise.allSettled(sellerUpdates);
+};
+
+const updateSellerListingStats = async (sellerId) => {
+  try {
+    // Update listing counts
+    const listingCounts = await prisma.fish_listings.groupBy({
+      by: ['listing_status'],
+      where: { seller_id: sellerId },
+      _count: {
+        id: true
+      }
+    });
+
+    const totalListings = listingCounts.reduce((sum, group) => sum + group._count.id, 0);
+    const activeListings = listingCounts.find(group => group.listing_status === 'active')?._count.id || 0;
+
+    // Calculate average rating
+    const avgRatingResult = await prisma.reviews.aggregate({
+      where: {
+        fish_listings: {
+          seller_id: sellerId
+        }
+      },
+      _avg: {
+        rating: true
+      }
+    });
+
+    // Update seller metrics with listing stats and rating
+    await prisma.seller_metrics.update({
+      where: { seller_id: sellerId },
+      data: {
+        total_listings: totalListings,
+        active_listings: activeListings,
+        avg_rating: avgRatingResult._avg.rating ? Number(avgRatingResult._avg.rating.toFixed(2)) : 0
+      }
+    });
+
+  } catch (error) {
+    console.error(`Error updating listing stats for seller ${sellerId}:`, error);
+  }
+};
+
+
+
 // Webhook handler for Razorpay events
 export const handleRazorpayWebhook = async (req, res) => {
   try {
     const webhookSignature = req.get('x-razorpay-signature');
     const webhookBody = req.body;
-    
+
     // Verify webhook signature
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RZP_WEBHOOK_SECRET)
@@ -473,18 +730,18 @@ export const handleRazorpayWebhook = async (req, res) => {
         console.log('Payment captured:', event.payload.payment.entity.id);
         // Additional logic for successful payment if needed
         break;
-        
+
       case 'payment.failed':
         console.log('Payment failed:', event.payload.payment.entity.id);
         // Handle failed payment - maybe update order status
         const failedPaymentId = event.payload.payment.entity.id;
         await handleFailedPayment(failedPaymentId);
         break;
-        
+
       case 'order.paid':
         console.log('Order paid:', event.payload.order.entity.id);
         break;
-        
+
       default:
         console.log('Unhandled webhook event:', event.event);
     }
@@ -547,6 +804,8 @@ export const handleFailedPayment = async (paymentId) => {
   }
 };
 
+
+
 // Cart Checkout
 export const cartCheckout = async (req, res) => {
   console.log("Reached cart checkout with Razorpay integration.");
@@ -570,16 +829,16 @@ export const cartCheckout = async (req, res) => {
       selectedItems
     } = req.body;
 
-    console.log("Cart checkout data:", { 
-      cartId, 
-      cartItems, 
-      guestInfo, 
-      shippingDetails, 
-      razorpay_order_id, 
-      couponCode, 
-      pointsToUse, 
-      orderNotes, 
-      selectedItems 
+    console.log("Cart checkout data:", {
+      cartId,
+      cartItems,
+      guestInfo,
+      shippingDetails,
+      razorpay_order_id,
+      couponCode,
+      pointsToUse,
+      orderNotes,
+      selectedItems
     });
 
     const userId = req.userId;
@@ -604,7 +863,7 @@ export const cartCheckout = async (req, res) => {
 
     // Verify Razorpay payment signature
     const isPaymentValid = verifyRazorpayPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
-    
+
     if (!isPaymentValid) {
       console.log('Razorpay payment verification failed');
       return res.status(400).json({
@@ -780,6 +1039,7 @@ export const cartCheckout = async (req, res) => {
     // STEP 2: Process order calculations
     const itemsBySeller = {};
     let totalCartAmount = 0;
+    const sellerIds = new Set(); // Track unique sellers for metrics
 
     for (const cartItem of itemsToCheckout) {
       const fishListing = cartItem.fish_listings;
@@ -796,6 +1056,11 @@ export const cartCheckout = async (req, res) => {
       const itemTotal = Number(fishListing.price) * cartItem.quantity;
       totalCartAmount += itemTotal;
 
+      // Track seller for metrics
+      if (sellerId && sellerId !== 'platform') {
+        sellerIds.add(sellerId);
+      }
+
       if (!itemsBySeller[sellerId]) {
         itemsBySeller[sellerId] = {
           seller: fishListing.users,
@@ -810,7 +1075,8 @@ export const cartCheckout = async (req, res) => {
         quantity: cartItem.quantity,
         unitPrice: fishListing.price,
         totalPrice: itemTotal,
-        fishListing: fishListing
+        fishListing: fishListing,
+        sellerId: sellerId
       });
 
       itemsBySeller[sellerId].totalAmount += itemTotal;
@@ -843,11 +1109,12 @@ export const cartCheckout = async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const createdOrders = [];
       const updatePromises = [];
+      const validatedItemsForMetrics = []; // Collect items for metrics update
 
       // Batch create shipping and payment details
-      const sellerIds = Object.keys(itemsBySeller);
-      const shippingDetailsPromises = sellerIds.map(sellerId => {
-        const sellerShippingCost = shippingCost / sellerIds.length;
+      const sellerIdsList = Object.keys(itemsBySeller);
+      const shippingDetailsPromises = sellerIdsList.map(sellerId => {
+        const sellerShippingCost = shippingCost / sellerIdsList.length;
         return tx.shipping_details.create({
           data: {
             carrier: shippingDetails.carrier || null,
@@ -863,7 +1130,7 @@ export const cartCheckout = async (req, res) => {
         });
       });
 
-      const paymentDetailsPromises = sellerIds.map(sellerId => {
+      const paymentDetailsPromises = sellerIdsList.map(sellerId => {
         return tx.payment_details.create({
           data: {
             payment_method: payment_method,
@@ -896,7 +1163,7 @@ export const cartCheckout = async (req, res) => {
         const sellerAmountRatio = sellerData.totalAmount / totalCartAmount;
         const sellerDiscountAmount = totalDiscountAmount * sellerAmountRatio;
         const sellerPointsUsed = Math.floor(pointsUsed * sellerAmountRatio);
-        const sellerShippingCost = shippingCost / sellerIds.length;
+        const sellerShippingCost = shippingCost / sellerIdsList.length;
         const sellerFinalAmount = sellerData.totalAmount + sellerShippingCost - sellerDiscountAmount;
         const pointsEarned = Math.floor(sellerFinalAmount * 0.02);
 
@@ -929,6 +1196,18 @@ export const cartCheckout = async (req, res) => {
           data: orderItemsData
         });
 
+        // Collect validated items for metrics update
+        sellerData.items.forEach(item => {
+          validatedItemsForMetrics.push({
+            fishId: item.fishId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            fishListing: item.fishListing,
+            sellerId: item.sellerId
+          });
+        });
+
         // Batch update fish listing quantities
         for (const item of sellerData.items) {
           updatePromises.push(
@@ -949,7 +1228,8 @@ export const cartCheckout = async (req, res) => {
           shippingDetails: shippingRecords[orderIndex],
           paymentDetails: paymentRecords[orderIndex],
           seller: sellerData.seller,
-          pointsEarned
+          pointsEarned,
+          sellerId: sellerId
         });
 
         orderIndex++;
@@ -1000,14 +1280,79 @@ export const cartCheckout = async (req, res) => {
         pointsUsed,
         totalDiscountAmount,
         itemsCheckedOut: itemsToCheckout.length,
-        sellersCount: sellerIds.length
+        sellersCount: sellerIdsList.length,
+        validatedItemsForMetrics,
+        sellerIds: Array.from(sellerIds),
+        orderUserId
       };
     }, {
       timeout: 15000, // 15 seconds timeout
       maxWait: 5000
     });
 
+    // Update seller metrics and sales history after successful order creation
+    // This is done outside the main transaction to prevent timeouts
+    try {
+      await updateCartCheckoutSellerMetricsAsync(
+        result.orderUserId,
+        result.sellerIds,
+        result.validatedItemsForMetrics,
+        result.totalAmount,
+        result.orders
+      );
+    } catch (metricsError) {
+      console.error('Error updating seller metrics (orders still successful):', metricsError);
+      // Don't fail the entire checkout if metrics update fails
+    }
+
     console.log('Cart checkout completed successfully. Orders created:', result.orders.length);
+
+    // Send notification emails to all sellers and customer
+    try {
+      const customerDetails = await prisma.users.findUnique({
+        where: { id: result.orderUserId }
+      });
+
+      console.log("Cart checkout result orders : ",result)
+      console.log("Result orders on same shit : ", result.orders)
+
+      // Send emails to all sellers
+      for (const order of result.orders) {
+        console.log("Order inside the fking loop : ", order)
+        if (order.order.seller?.email) {
+          await sendNotificationEmail(
+            order.order.seller.email,
+            {
+              order: order.order.order,
+              orderItems: [order.order.orderItems],
+              shippingDetails: order.order.shippingDetails,
+              paymentDetails: order.order.paymentDetails,
+              itemDetails: order.order.seller,
+              customerDetails: customerDetails
+            },
+            'customer',
+            'seller'
+          );
+        }
+      }
+
+      // Send single consolidated email to customer
+      if (customerDetails?.email) {
+        await sendNotificationEmail(
+          customerDetails.email,
+          {
+            orders: result.orders,
+            totalAmount: result.totalAmount,
+            customerDetails: customerDetails
+          },
+          customerDetails.full_name,
+          'customer_cart_checkout'
+        );
+      }
+    } catch (emailError) {
+      console.error('Error sending notification emails:', emailError);
+      // Don't fail the checkout if email sending fails
+    }
 
     // Send success response
     return res.status(201).json({
@@ -1046,11 +1391,11 @@ export const cartCheckout = async (req, res) => {
 
     // Handle specific error types
     if (error.message.includes('not found') ||
-        error.message.includes('not available') ||
-        error.message.includes('Not enough stock') ||
-        error.message.includes('Payment amount mismatch') ||
-        error.message.includes('cart') ||
-        error.message.includes('empty')) {
+      error.message.includes('not available') ||
+      error.message.includes('Not enough stock') ||
+      error.message.includes('Payment amount mismatch') ||
+      error.message.includes('cart') ||
+      error.message.includes('empty')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -1062,5 +1407,255 @@ export const cartCheckout = async (req, res) => {
       message: 'An error occurred during cart checkout',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
+  }
+};
+
+const updateCartCheckoutSellerMetricsAsync = async (userId, sellerIds, validatedItems, totalAmount, orders) => {
+  try {
+    // Check if this is a new customer for each seller
+    const isNewCustomerMap = await checkIfNewCustomerForMultipleSellersAsync(userId, sellerIds);
+    
+    // Group items and orders by seller for metrics calculation
+    const sellerMetricsData = groupSellerDataForMetrics(validatedItems, orders, isNewCustomerMap);
+    
+    // Update seller metrics and sales history for all sellers
+    await updateMultipleSellerMetricsAndSalesHistory(sellerMetricsData);
+    
+    console.log('Cart checkout seller metrics updated successfully for sellers:', sellerIds);
+  } catch (error) {
+    console.error('Failed to update cart checkout seller metrics:', error);
+    throw error;
+  }
+};
+
+const checkIfNewCustomerForMultipleSellersAsync = async (userId, sellerIds) => {
+  const newCustomerMap = {};
+
+  if (!sellerIds || sellerIds.length === 0) {
+    return newCustomerMap;
+  }
+
+  try {
+    // Use a single query to check all sellers at once for better performance
+    const existingOrders = await prisma.orders.findMany({
+      where: {
+        user_id: userId,
+        order_items: {
+          some: {
+            fish_listings: {
+              seller_id: {
+                in: sellerIds
+              }
+            }
+          }
+        },
+        status: {
+          in: ['completed', 'delivered', 'pending', 'processing']
+        }
+      },
+      include: {
+        order_items: {
+          include: {
+            fish_listings: {
+              select: {
+                seller_id: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Create a set of sellers who already have orders from this customer
+    const existingSellers = new Set();
+    existingOrders.forEach(order => {
+      order.order_items.forEach(item => {
+        if (item.fish_listings?.seller_id) {
+          existingSellers.add(item.fish_listings.seller_id);
+        }
+      });
+    });
+
+    // Map each seller to whether they're a new customer or not
+    sellerIds.forEach(sellerId => {
+      newCustomerMap[sellerId] = !existingSellers.has(sellerId);
+    });
+
+    return newCustomerMap;
+  } catch (error) {
+    console.error('Error checking new customers for multiple sellers:', error);
+    // Default to all as new customers if there's an error
+    sellerIds.forEach(sellerId => {
+      newCustomerMap[sellerId] = true;
+    });
+    return newCustomerMap;
+  }
+};
+
+const groupSellerDataForMetrics = (validatedItems, orders, isNewCustomerMap) => {
+  const sellerMetricsData = {};
+
+  // Group items by seller
+  validatedItems.forEach(item => {
+    const sellerId = item.sellerId;
+    if (!sellerId || sellerId === 'platform') return;
+
+    if (!sellerMetricsData[sellerId]) {
+      sellerMetricsData[sellerId] = {
+        items: [],
+        totalSales: 0,
+        totalQuantity: 0,
+        orderCount: 0,
+        isNewCustomer: isNewCustomerMap[sellerId] || false
+      };
+    }
+
+    sellerMetricsData[sellerId].items.push(item);
+    sellerMetricsData[sellerId].totalSales += Number(item.totalPrice);
+    sellerMetricsData[sellerId].totalQuantity += item.quantity;
+  });
+
+  // Add order count for each seller
+  orders.forEach(orderData => {
+    const sellerId = orderData.sellerId;
+    if (sellerId && sellerId !== 'platform' && sellerMetricsData[sellerId]) {
+      sellerMetricsData[sellerId].orderCount += 1;
+    }
+  });
+
+  return sellerMetricsData;
+};
+
+const updateMultipleSellerMetricsAndSalesHistory = async (sellerMetricsData) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Start of day
+
+  // Process each seller in parallel for better performance
+  const sellerUpdates = Object.entries(sellerMetricsData).map(async ([sellerId, sellerData]) => {
+    const { totalSales, orderCount, isNewCustomer } = sellerData;
+
+    try {
+      // Use a separate transaction for each seller to avoid conflicts and improve performance
+      await prisma.$transaction(async (tx) => {
+        // Update or create seller_metrics
+        await tx.seller_metrics.upsert({
+          where: { seller_id: sellerId },
+          update: {
+            total_sales: {
+              increment: totalSales
+            },
+            total_orders: {
+              increment: orderCount
+            },
+            last_calculated_at: new Date()
+          },
+          create: {
+            seller_id: sellerId,
+            total_sales: totalSales,
+            total_orders: orderCount,
+            avg_rating: 0,
+            total_listings: 0,
+            active_listings: 0,
+            last_calculated_at: new Date()
+          }
+        });
+
+        // Update or create daily sales history
+        // First try to find existing record
+        const existingSalesHistory = await tx.seller_sales_history.findFirst({
+          where: {
+            seller_id: sellerId,
+            date: today
+          }
+        });
+
+        if (existingSalesHistory) {
+          // Update existing record
+          await tx.seller_sales_history.update({
+            where: {
+              uuid_id: existingSalesHistory.uuid_id
+            },
+            data: {
+              daily_sales: {
+                increment: totalSales
+              },
+              order_count: {
+                increment: orderCount
+              },
+              new_customers: {
+                increment: isNewCustomer ? 1 : 0
+              }
+            }
+          });
+        } else {
+          // Create new record
+          await tx.seller_sales_history.create({
+            data: {
+              seller_id: sellerId,
+              date: today,
+              daily_sales: totalSales,
+              order_count: orderCount,
+              new_customers: isNewCustomer ? 1 : 0,
+              cancellations: 0
+            }
+          });
+        }
+      }, {
+        timeout: 8000 // 8 second timeout for metrics updates
+      });
+
+      // Update listing counts and average rating outside transaction for performance
+      await updateMultipleSellerListingStats(sellerId);
+
+      console.log(`Updated metrics for seller ${sellerId}: Sales +${totalSales}, Orders +${orderCount}, New Customer: ${isNewCustomer}`);
+
+    } catch (error) {
+      console.error(`Error updating seller metrics for seller ${sellerId}:`, error);
+      // Continue with other sellers even if one fails
+    }
+  });
+
+  // Wait for all seller updates to complete
+  await Promise.allSettled(sellerUpdates);
+};
+
+const updateMultipleSellerListingStats = async (sellerId) => {
+  try {
+    // Update listing counts
+    const listingCounts = await prisma.fish_listings.groupBy({
+      by: ['listing_status'],
+      where: { seller_id: sellerId },
+      _count: {
+        id: true
+      }
+    });
+
+    const totalListings = listingCounts.reduce((sum, group) => sum + group._count.id, 0);
+    const activeListings = listingCounts.find(group => group.listing_status === 'active')?._count.id || 0;
+
+    // Calculate average rating
+    const avgRatingResult = await prisma.reviews.aggregate({
+      where: {
+        fish_listings: {
+          seller_id: sellerId
+        }
+      },
+      _avg: {
+        rating: true
+      }
+    });
+
+    // Update seller metrics with listing stats and rating
+    await prisma.seller_metrics.update({
+      where: { seller_id: sellerId },
+      data: {
+        total_listings: totalListings,
+        active_listings: activeListings,
+        avg_rating: avgRatingResult._avg.rating ? Number(avgRatingResult._avg.rating.toFixed(2)) : 0
+      }
+    });
+
+  } catch (error) {
+    console.error(`Error updating listing stats for seller ${sellerId}:`, error);
   }
 };

@@ -20,6 +20,7 @@
     "dotenv": "^16.5.0",
     "ejs": "^3.1.10",
     "express": "^5.1.0",
+    "get-stream": "^9.0.1",
     "googleapis": "^148.0.0",
     "http-errors": "~1.6.3",
     "jsonwebtoken": "^9.0.2",
@@ -27,6 +28,7 @@
     "node-cron": "^4.1.0",
     "nodemailer": "^7.0.3",
     "nodemon": "^3.1.9",
+    "pdfkit": "^0.17.1",
     "pg": "^8.14.1",
     "razorpay": "^2.9.6"
   },

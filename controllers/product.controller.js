@@ -372,112 +372,410 @@ export const getAllCategories = async (options = {}) => {
     }
 }
 
-export const searchFishes = async (searchTerm, options = {}) => {
+export const searchFishes = async (req, res) => {
+    // Get keyword from URL params or query params
+    const keyword = req.params.name;
+
+    // Input validation
+    if (!keyword || typeof keyword !== 'string') {
+        return res.status(400).json({
+            success: false,
+            error: 'Valid search keyword is required',
+            data: [],
+            metadata: {
+                totalCount: 0,
+                searchTerm: keyword,
+                executionTime: 0
+            }
+        });
+    }
+
+    const startTime = Date.now();
+    
+    // Get options from query parameters
     const {
-        limit = 20,
+        limit = 8,
         offset = 0,
+        page = 1,
         sortBy = 'created_at',
         sortOrder = 'desc',
         minPrice,
         maxPrice,
-        includeCategory = true,
-        includeSeller = false
-    } = options;
+        categoryId,
+        includeCategory = 'true',
+        includeSeller = 'false',
+        featuredOnly = 'false',
+        colors,
+        sizes,
+        minQuantity = 1
+    } = req.query;
 
-    if (!searchTerm) {
-        return {
-            success: false,
-            error: 'Search term is required',
-            data: []
-        };
+    // Parse boolean values from query strings
+    const parsedIncludeCategory = includeCategory === 'true';
+    const parsedIncludeSeller = includeSeller === 'true';
+    const parsedFeaturedOnly = featuredOnly === 'true';
+
+    // Parse arrays from comma-separated strings
+    const parsedColors = colors ? colors.split(',').map(c => c.trim()).filter(c => c) : [];
+    const parsedSizes = sizes ? sizes.split(',').map(s => s.trim()).filter(s => s) : [];
+
+    // Handle pagination - if page is provided, calculate offset
+    let calculatedOffset = parseInt(offset) || 0;
+    if (page && page > 1) {
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit) || 8;
+        calculatedOffset = (pageNum - 1) * limitNum;
     }
+
+    // Validate numeric inputs
+    const validatedLimit = Math.min(Math.max(parseInt(limit) || 8, 1), 100);
+    const validatedOffset = Math.max(calculatedOffset, 0);
+    const validatedMinQuantity = Math.max(parseInt(minQuantity) || 1, 0);
+
+    // Validate sort parameters
+    const allowedSortFields = ['created_at', 'updated_at', 'name', 'price', 'view_count'];
+    const validatedSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const validatedSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase()) ? sortOrder.toLowerCase() : 'desc';
 
     try {
-        // Build price filter
-        const priceFilter = {};
-        if (minPrice !== undefined) priceFilter.gte = minPrice;
-        if (maxPrice !== undefined) priceFilter.lte = maxPrice;
+        // Sanitize and prepare search term
+        const sanitizedKeyword = keyword.trim().toLowerCase();
+        const searchTerms = sanitizedKeyword.split(/\s+/).filter(term => term.length > 0);
 
-        // Build where clause
+        // Build comprehensive where clause
         const whereClause = {
-            OR: [
+            AND: [
+                // Basic availability filters
                 {
-                    name: {
-                        contains: searchTerm,
-                        mode: 'insensitive'
+                    listing_status: 'active',
+                    quantity_available: {
+                        gte: validatedMinQuantity
                     }
                 },
+                // Main search conditions
                 {
-                    description: {
-                        contains: searchTerm,
-                        mode: 'insensitive'
-                    }
-                },
-                {
-                    breed: {
-                        contains: searchTerm,
-                        mode: 'insensitive'
-                    }
+                    OR: [
+                        // Exact name match (highest priority)
+                        {
+                            name: {
+                                equals: keyword,
+                                mode: 'insensitive'
+                            }
+                        },
+                        // Name contains search term
+                        {
+                            name: {
+                                contains: sanitizedKeyword,
+                                mode: 'insensitive'
+                            }
+                        },
+                        // Description contains search term
+                        {
+                            description: {
+                                contains: sanitizedKeyword,
+                                mode: 'insensitive'
+                            }
+                        },
+                        // Breed matches
+                        {
+                            breed: {
+                                contains: sanitizedKeyword,
+                                mode: 'insensitive'
+                            }
+                        },
+                        // Color matches
+                        {
+                            color: {
+                                contains: sanitizedKeyword,
+                                mode: 'insensitive'
+                            }
+                        },
+                        // Category name matches (if including category)
+                        ...(parsedIncludeCategory ? [{
+                            fish_categories: {
+                                name: {
+                                    contains: sanitizedKeyword,
+                                    mode: 'insensitive'
+                                }
+                            }
+                        }] : []),
+                        // Multiple term search - name contains any of the terms
+                        ...(searchTerms.length > 1 ? searchTerms.map(term => ({
+                            name: {
+                                contains: term,
+                                mode: 'insensitive'
+                            }
+                        })) : [])
+                    ]
                 }
-            ],
-            listing_status: 'active',
-            quantity_available: {
-                gt: 0
-            }
+            ]
         };
 
-        if (Object.keys(priceFilter).length > 0) {
-            whereClause.price = priceFilter;
+        // Apply additional filters
+        const additionalFilters = [];
+
+        // Price range filter
+        if (minPrice !== undefined || maxPrice !== undefined) {
+            const priceFilter = {};
+            if (minPrice !== undefined && !isNaN(parseFloat(minPrice))) {
+                priceFilter.gte = parseFloat(minPrice);
+            }
+            if (maxPrice !== undefined && !isNaN(parseFloat(maxPrice))) {
+                priceFilter.lte = parseFloat(maxPrice);
+            }
+            if (Object.keys(priceFilter).length > 0) {
+                additionalFilters.push({ price: priceFilter });
+            }
         }
 
-        // Build order by clause
-        const orderByClause = {};
-        orderByClause[sortBy] = sortOrder;
+        // Category filter
+        if (categoryId) {
+            additionalFilters.push({ category_id: categoryId });
+        }
 
-        const fishListings = await prisma.fish_listings.findMany({
-            where: whereClause,
-            include: {
-                fish_categories: includeCategory,
-                users: includeSeller ? {
-                    select: {
-                        id: true,
-                        business_name: true,
-                        display_name: true,
-                        seller_rating: true,
-                        logo_url: true
-                    }
-                } : false
-            },
-            orderBy: orderByClause,
-            take: limit,
-            skip: offset
+        // Featured filter
+        if (parsedFeaturedOnly) {
+            additionalFilters.push({ is_featured: true });
+        }
+
+        // Color filter
+        if (parsedColors.length > 0) {
+            additionalFilters.push({
+                color: {
+                    in: parsedColors,
+                    mode: 'insensitive'
+                }
+            });
+        }
+
+        // Size filter
+        if (parsedSizes.length > 0) {
+            additionalFilters.push({
+                size: {
+                    in: parsedSizes,
+                    mode: 'insensitive'
+                }
+            });
+        }
+
+        // Add additional filters to main where clause
+        if (additionalFilters.length > 0) {
+            whereClause.AND.push(...additionalFilters);
+        }
+
+        // Build include clause
+        const includeClause = {};
+        
+        if (parsedIncludeCategory) {
+            includeClause.fish_categories = {
+                select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    image_url: true,
+                    feature: true
+                }
+            };
+        }
+
+        if (parsedIncludeSeller) {
+            includeClause.users = {
+                select: {
+                    id: true,
+                    business_name: true,
+                    display_name: true,
+                    seller_rating: true,
+                    logo_url: true,
+                    status: true,
+                    created_at: true
+                }
+            };
+        }
+
+        // Execute search query
+        const [fishListings, totalCount] = await Promise.all([
+            prisma.fish_listings.findMany({
+                where: whereClause,
+                include: includeClause,
+                orderBy: {
+                    [validatedSortBy]: validatedSortOrder
+                },
+                take: validatedLimit,
+                skip: validatedOffset
+            }),
+            prisma.fish_listings.count({
+                where: whereClause
+            })
+        ]);
+
+        // Calculate execution time
+        const executionTime = Date.now() - startTime;
+
+        // Prepare pagination metadata
+        const hasNextPage = validatedOffset + fishListings.length < totalCount;
+        const hasPreviousPage = validatedOffset > 0;
+        const totalPages = Math.ceil(totalCount / validatedLimit);
+        const currentPage = Math.floor(validatedOffset / validatedLimit) + 1;
+
+        // Sort results by relevance (optional enhancement)
+        const sortedResults = fishListings.sort((a, b) => {
+            const aNameMatch = a.name.toLowerCase().includes(sanitizedKeyword);
+            const bNameMatch = b.name.toLowerCase().includes(sanitizedKeyword);
+            
+            if (aNameMatch && !bNameMatch) return -1;
+            if (!aNameMatch && bNameMatch) return 1;
+            
+            // If both match in name, prioritize exact matches
+            const aExactMatch = a.name.toLowerCase() === sanitizedKeyword;
+            const bExactMatch = b.name.toLowerCase() === sanitizedKeyword;
+            
+            if (aExactMatch && !bExactMatch) return -1;
+            if (!aExactMatch && bExactMatch) return 1;
+            
+            return 0;
         });
 
-        // Get total count for pagination
-        const totalCount = await prisma.fish_listings.count({
-            where: whereClause
-        });
+        // Build pagination URLs for convenience
+        const baseUrl = `${req.protocol}://${req.get('host')}${req.originalUrl.split('?')[0]}`;
+        const currentParams = new URLSearchParams(req.query);
+        
+        const buildPageUrl = (pageNum) => {
+            currentParams.set('page', pageNum.toString());
+            return `${baseUrl}?${currentParams.toString()}`;
+        };
 
-        return {
+        // Return successful response
+        return res.status(200).json({
             success: true,
-            data: fishListings,
-            count: fishListings.length,
-            totalCount,
-            pagination: {
-                limit,
-                offset,
-                hasMore: offset + fishListings.length < totalCount
+            data: sortedResults,
+            metadata: {
+                count: fishListings.length,
+                totalCount,
+                searchTerm: keyword,
+                sanitizedSearchTerm: sanitizedKeyword,
+                executionTime,
+                filters: {
+                    minPrice: minPrice ? parseFloat(minPrice) : undefined,
+                    maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+                    categoryId,
+                    featuredOnly: parsedFeaturedOnly,
+                    colors: parsedColors,
+                    sizes: parsedSizes,
+                    minQuantity: validatedMinQuantity
+                },
+                pagination: {
+                    limit: validatedLimit,
+                    offset: validatedOffset,
+                    currentPage,
+                    totalPages,
+                    hasNextPage,
+                    hasPreviousPage
+                },
+                sorting: {
+                    sortBy: validatedSortBy,
+                    sortOrder: validatedSortOrder
+                }
+            },
+            _links: {
+                self: req.originalUrl,
+                ...(hasNextPage && {
+                    next: buildPageUrl(currentPage + 1)
+                }),
+                ...(hasPreviousPage && {
+                    prev: buildPageUrl(currentPage - 1)
+                }),
+                ...(currentPage !== 1 && {
+                    first: buildPageUrl(1)
+                }),
+                ...(currentPage !== totalPages && totalPages > 0 && {
+                    last: buildPageUrl(totalPages)
+                })
             }
-        };
+        });
+
     } catch (error) {
-        console.error('Error searching fishes:', error);
-        return {
-            success: false,
+        const executionTime = Date.now() - startTime;
+        
+        console.error('Error in searchFishes function:', {
             error: error.message,
-            data: []
-        };
+            stack: error.stack,
+            keyword,
+            query: req.query,
+            params: req.params,
+            timestamp: new Date().toISOString()
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: 'An error occurred while searching fish listings',
+            errorDetails: process.env.NODE_ENV === 'development' ? error.message : undefined,
+            data: [],
+            metadata: {
+                totalCount: 0,
+                searchTerm: keyword,
+                executionTime,
+                errorOccurred: true
+            }
+        });
     }
-}
+};
+
+export const getMatchingFishListings = async (searchString = '', options = {}) => {
+  const { includeCategory = false, includeCount = false, limit = 10 } = options;
+  
+  try {
+    const listings = await prisma.fish_listings.findMany({
+      where: {
+        listing_status: 'active',
+        quantity_available: {
+          gt: 0
+        },
+        ...(searchString.trim() && {
+          OR: [
+            { name: { contains: searchString, mode: 'insensitive' } },
+            { breed: { contains: searchString, mode: 'insensitive' } },
+            { color: { contains: searchString, mode: 'insensitive' } }
+          ]
+        })
+      },
+      include: {
+        fish_categories: includeCategory ? {
+          include: {
+            _count: includeCount ? {
+              select: {
+                fish_listings: {
+                  where: {
+                    listing_status: 'active',
+                    quantity_available: {
+                      gt: 0
+                    }
+                  }
+                }
+              }
+            } : false
+          }
+        } : false
+      },
+      orderBy: {
+        name: 'asc'
+      },
+      take: limit
+    });
+
+    return {
+      success: true,
+      data: listings,
+      count: listings.length
+    };
+  } catch (error) {
+    console.error('Error fetching matching fish listings:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: []
+    };
+  }
+};
 
 
 // Example usage:

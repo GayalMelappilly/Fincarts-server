@@ -1,5 +1,5 @@
 import express from 'express'
-import { sellerCreateProfile, getCurrentSeller, loginSeller, logoutSeller, verifyEmail, confirmVerificationCode, updateProfile, updatePassword, ChangeSellerPassword } from '../../controllers/seller/profile.controller.js'
+import { sellerCreateProfile, getCurrentSeller, loginSeller, logoutSeller, verifyEmail, confirmVerificationCode, updateProfile, updatePassword, ChangeSellerPassword, nativeLogoutSeller, nativeLoginSeller, nativeGetCurrentSeller } from '../../controllers/seller/profile.controller.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { sellerOnly } from '../../middlewares/role.middleware.js'
 
@@ -14,5 +14,10 @@ sellerProfileRouter.get('/logout', authenticate, logoutSeller)
 sellerProfileRouter.put('/update-profile', authenticate, sellerOnly, updateProfile)
 sellerProfileRouter.put('/update-password', authenticate, sellerOnly, updatePassword)
 sellerProfileRouter.post('/change-password', ChangeSellerPassword)
+
+// Native Specific Apis
+sellerProfileRouter.post('/native/login', nativeLoginSeller)
+sellerProfileRouter.post('/native/logout', nativeLogoutSeller)
+sellerProfileRouter.get('/native/get-current-seller/:id', nativeGetCurrentSeller)
 
 export default sellerProfileRouter

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Order Confirmation - Fincarts</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f9fafb;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #1f2937;
+    }
+
+    .container {
+      max-width: 620px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    }
+
+    .header {
+      background: linear-gradient(90deg, #047857, #059669);
+      padding: 30px 20px;
+      text-align: center;
+      color: #ffffff;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 600;
+    }
+
+    .content {
+      padding: 30px 25px;
+    }
+
+    .section {
+      margin-top: 25px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      border-left: 4px solid #10b981;
+      padding-left: 12px;
+      color: #111827;
+    }
+
+    .detail {
+      margin: 8px 0;
+      font-size: 14px;
+    }
+
+    .detail strong {
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .img-box {
+      text-align: center;
+      margin: 30px 0;
+    }
+
+    .img-box img {
+      max-width: 90%;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .button {
+      display: inline-block;
+      margin: 20px 0;
+      padding: 10px 24px;
+      background-color: #10b981;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background-color 0.3s ease;
+    }
+
+    .button:hover {
+      background-color: #059669;
+    }
+
+    .footer {
+      background-color: #f3f4f6;
+      text-align: center;
+      padding: 20px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    a {
+      color: #047857;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Thank You, <%= name %>!</h1>
+      <p>Your order has been placed successfully</p>
+    </div>
+
+    <div class="content">
+      <div class="section">
+        <div class="section-title">Order Summary</div>
+        <p class="detail"><strong>Order ID:</strong> <%= order.id %></p>
+        <p class="detail"><strong>Status:</strong> <%= order.status %></p>
+        <p class="detail"><strong>Total:</strong> ₹<%= order.total_amount %></p>
+        <p class="detail"><strong>Points Earned:</strong> <%= order.points_earned %></p>
+        <% if (order.points_used > 0) { %>
+          <p class="detail"><strong>Points Used:</strong> <%= order.points_used %></p>
+        <% } %>
+        <p class="detail"><strong>Order Date:</strong> <%= new Date(order.created_at).toLocaleString() %></p>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Item Details</div>
+        <p class="detail"><strong>Name:</strong> <%= itemDetails.name %> (<%= itemDetails.breed %>)</p>
+        <p class="detail"><strong>Description:</strong> <%= itemDetails.description %></p>
+        <p class="detail"><strong>Size:</strong> <%= itemDetails.size %>, <strong>Age:</strong> <%= itemDetails.age %></p>
+        <p class="detail"><strong>Color:</strong> <%= itemDetails.color %></p>
+        <p class="detail"><strong>Diet:</strong> <%= itemDetails.dietary_requirements.food_type %> - <%= itemDetails.dietary_requirements.feeding_frequency %></p>
+        <p class="detail"><strong>Quantity:</strong> <%= items[0].quantity %></p>
+        <p class="detail"><strong>Unit Price:</strong> ₹<%= items[0].unit_price %></p>
+        <p class="detail"><strong>Total Price:</strong> ₹<%= items[0].total_price %></p>
+
+        <div class="img-box">
+          <img src="<%= itemDetails.images[0] %>" alt="Fish Image" />
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Shipping Information</div>
+        <p class="detail"><strong>Method:</strong> <%= shipping.shipping_method %></p>
+        <p class="detail"><strong>Cost:</strong> ₹<%= shipping.shipping_cost %></p>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Payment Details</div>
+        <p class="detail"><strong>Method:</strong> <%= payment.payment_method %></p>
+        <p class="detail"><strong>Status:</strong> <%= payment.status %></p>
+        <p class="detail"><strong>Transaction ID:</strong> <%= payment.transaction_id %></p>
+        <p class="detail"><strong>Paid:</strong> ₹<%= payment.payment_metadata.amount_paid %></p>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Customer Information</div>
+        <p class="detail"><strong>Name:</strong> <%= customerDetails.full_name %></p>
+        <p class="detail"><strong>Email:</strong> <%= customerDetails.email %></p>
+      </div>
+
+      <div style="text-align: center;">
+        <a href="#" class="button">Track Your Order</a>
+      </div>
+    </div>
+
+    <div class="footer">
+      This is an automated confirmation from Fincarts. <br/>
+      For support, contact us at <a href="mailto:fincarts.services@gmail.com">fincarts.services@gmail.com</a>.
+    </div>
+  </div>
+</body>
+</html>

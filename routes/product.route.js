@@ -7,6 +7,7 @@ productRouter.get('/product/get-featured-fishes', getFeaturedFishes)
 productRouter.get('/product/get-fishes-by-category/:id', getFishesByCategory)
 productRouter.get('/product/get-fishes-by-name/:name', getFishesByCategoryName)
 productRouter.get('/product/get-all-categories', getAllCategories)
-productRouter.post('/product/search-fishes', searchFishes)
+productRouter.get('/product/search-fishes/:name', searchFishes)
+// productRouter.post('/product/')
 
 export default productRouter

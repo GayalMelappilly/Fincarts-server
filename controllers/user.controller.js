@@ -4,7 +4,7 @@ import { createAccessToken, createEmailVerificationToken, createRefreshToken, ve
 import { hashPassword, matchPassword } from '../utils/bcrypt.js'
 import { generateVerificationToken } from '../utils/generateVerificationCode.js'
 import prisma from '../utils/prisma.js'
-import { sendVerificationEmail } from '../utils/sendMails.js'
+import { sendVerificationEmail } from '../utils/sendVerificationMails.js'
 import { transformToCamelCase } from '../utils/toCamelCase.js'
 
 // Signup user

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>New Order - Fincarts</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f1f5f9;
+      margin: 0;
+      padding: 20px 0;
+      color: #1f2937;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: auto;
+      background: #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+
+    .header {
+      background-color: #2563eb;
+      padding: 24px;
+      text-align: center;
+      color: #ffffff;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .header p {
+      margin-top: 6px;
+      font-size: 14px;
+      color: #e0e7ff;
+    }
+
+    .content {
+      padding: 32px;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 6px;
+    }
+
+    .grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .box {
+      flex: 1 1 45%;
+      background: #f9fafb;
+      padding: 16px;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .value {
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+
+    .status-pending { background-color: #fef3c7; color: #92400e; }
+    .status-completed { background-color: #d1fae5; color: #065f46; }
+    .status-processing { background-color: #dbeafe; color: #1e40af; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      background-color: #f3f4f6;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .product-img {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .total {
+      margin-top: 24px;
+      padding: 16px;
+      background: #f9fafb;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+
+    .total-row.total {
+      font-weight: bold;
+      border-top: 1px solid #d1d5db;
+      margin-top: 8px;
+      padding-top: 12px;
+    }
+
+    .footer {
+      background-color: #1f2937;
+      color: #d1d5db;
+      text-align: center;
+      font-size: 13px;
+      padding: 20px;
+    }
+
+    @media (max-width: 600px) {
+      .grid { flex-direction: column; }
+      .box { flex: 1 1 100%; }
+      .content { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Fincarts</h1>
+      <p>New Order Received 🎉</p>
+    </div>
+
+    <div class="content">
+      <h2>Order Summary</h2>
+      <div class="grid">
+        <div class="box">
+          <div class="label">Order ID</div>
+          <div class="value">#<%= order.id.slice(-8) %></div>
+        </div>
+        <div class="box">
+          <div class="label">Order Date</div>
+          <div class="value"><%= new Date(order.created_at).toLocaleString('en-US') %></div>
+        </div>
+        <div class="box">
+          <div class="label">Status</div>
+          <div class="value">
+            <span class="status status-<%= order.status %>"><%= order.status %></span>
+          </div>
+        </div>
+        <div class="box">
+          <div class="label">Items</div>
+          <div class="value"><%= items.length %> item(s)</div>
+        </div>
+      </div>
+
+      <h2>Customer Info</h2>
+      <div class="grid">
+        <div class="box">
+          <div class="label">Customer ID</div>
+          <div class="value">#<%= order.user_id.slice(-8) %></div>
+        </div>
+        <div class="box">
+          <div class="label">Order Type</div>
+          <div class="value">Standard</div>
+        </div>
+      </div>
+      <% if (order.order_notes) { %>
+      <div class="box" style="margin-top: 16px;">
+        <div class="label">Order Notes</div>
+        <div class="value" style="font-weight: normal;"><%= order.order_notes %></div>
+      </div>
+      <% } %>
+
+      <h2>Shipping & Payment</h2>
+      <div class="grid">
+        <div class="box">
+          <div class="label">Shipping Method</div>
+          <div class="value"><%= shipping.shipping_method %></div>
+          <div class="label" style="margin-top: 8px;">Cost</div>
+          <div class="value">₹<%= Number(shipping.shipping_cost).toFixed(2) %></div>
+          <% if (shipping.estimated_delivery) { %>
+          <div class="label" style="margin-top: 8px;">Est. Delivery</div>
+          <div class="value"><%= new Date(shipping.estimated_delivery).toLocaleDateString('en-US') %></div>
+          <% } %>
+        </div>
+        <div class="box">
+          <div class="label">Payment Method</div>
+          <div class="value"><%= payment.payment_method %></div>
+          <div class="label" style="margin-top: 8px;">Status</div>
+          <div class="value">
+            <span class="status status-<%= payment.status %>"><%= payment.status %></span>
+          </div>
+          <% if (payment.transaction_id) { %>
+          <div class="label" style="margin-top: 8px;">Transaction ID</div>
+          <div class="value" style="word-break: break-word; font-size: 12px;"><%= payment.transaction_id %></div>
+          <% } %>
+        </div>
+      </div>
+
+      <h2>Ordered Items</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Details</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% items.forEach(function(item) { %>
+          <tr>
+            <td>
+              <% if (itemDetails.images && itemDetails.images[0]) { %>
+              <img src="<%= itemDetails.images[0] %>" class="product-img" />
+              <% } else { %>
+              🐠
+              <% } %>
+            </td>
+            <td>
+              <strong><%= itemDetails.name || 'Fish Listing Item' %></strong><br/>
+              <% if (itemDetails.breed) { %>Breed: <%= itemDetails.breed %><br><% } %>
+              <% if (itemDetails.age) { %>Age: <%= itemDetails.age %><br><% } %>
+              <% if (itemDetails.fish_listing_id) { %>Listing ID: <%= itemDetails.fish_listing_id %><br><% } %>
+            </td>
+            <td><%= item.quantity %></td>
+            <td>₹<%= Number(item.unit_price).toFixed(2) %></td>
+            <td>₹<%= Number(item.total_price).toFixed(2) %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+
+      <div class="total">
+        <% var subtotal = items.reduce((sum, item) => sum + (parseFloat(item.total_price) || 0), 0); %>
+        <div class="total-row">
+          <span>Subtotal : </span>
+          <span>₹<%= Number(subtotal).toFixed(2) %></span>
+        </div>
+        <% if (order.discount_amount > 0) { %>
+        <div class="total-row">
+          <span>Discount : </span>
+          <span>-₹<%= Number(order.discount_amount).toFixed(2) %></span>
+        </div>
+        <% } %>
+        <div class="total-row">
+          <span>Shipping : </span>
+          <span>₹<%= Number(shipping.shipping_cost).toFixed(2) %></span>
+        </div>
+        <% if (order.points_used > 0) { %>
+        <div class="total-row">
+          <span>Points Used : </span>
+          <span>-<%= order.points_used %> pts</span>
+        </div>
+        <% } %>
+        <div class="total-row total">
+          <span>Grand Total : </span>
+          <span>₹<%= Number(order.total_amount).toFixed(2) %></span>
+        </div>
+        <% if (order.points_earned > 0) { %>
+        <div class="total-row">
+          <span>Points Earned : </span>
+          <span>+<%= order.points_earned %> pts</span>
+        </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p><strong>Fincarts</strong> © <%= new Date().getFullYear() %></p>
+      <p>Automated seller notification</p>
+    </div>
+  </div>
+</body>
+</html>
