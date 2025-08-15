@@ -400,7 +400,7 @@ export const searchFishes = async (req, res) => {
         maxPrice,
         categoryId,
         includeCategory = 'true',
-        includeSeller = 'false',
+        includeSeller = 'true', // Changed default to true to include breeder data
         featuredOnly = 'false',
         colors,
         sizes,
@@ -496,6 +496,25 @@ export const searchFishes = async (req, res) => {
                                 }
                             }
                         }] : []),
+                        // Seller/Breeder name matches (if including seller)
+                        ...(parsedIncludeSeller ? [
+                            {
+                                users: {
+                                    business_name: {
+                                        contains: sanitizedKeyword,
+                                        mode: 'insensitive'
+                                    }
+                                }
+                            },
+                            {
+                                users: {
+                                    display_name: {
+                                        contains: sanitizedKeyword,
+                                        mode: 'insensitive'
+                                    }
+                                }
+                            }
+                        ] : []),
                         // Multiple term search - name contains any of the terms
                         ...(searchTerms.length > 1 ? searchTerms.map(term => ({
                             name: {
@@ -581,10 +600,54 @@ export const searchFishes = async (req, res) => {
                     id: true,
                     business_name: true,
                     display_name: true,
+                    business_type: true,
                     seller_rating: true,
                     logo_url: true,
                     status: true,
-                    created_at: true
+                    store_description: true,
+                    website_url: true,
+                    email: true,
+                    phone: true,
+                    created_at: true,
+                    seller_addresses: {
+                        select: {
+                            id: true,
+                            address_line1: true,
+                            address_line2: true,
+                            landmark: true,
+                            is_default: true,
+                            address_type: true,
+                            seller_locations: {
+                                select: {
+                                    city: true,
+                                    state: true,
+                                    country: true,
+                                    pin_code: true,
+                                    latitude: true,
+                                    longitude: true
+                                }
+                            }
+                        }
+                    },
+                    seller_metrics: {
+                        select: {
+                            total_sales: true,
+                            total_orders: true,
+                            avg_rating: true,
+                            total_listings: true,
+                            active_listings: true,
+                            last_calculated_at: true
+                        }
+                    },
+                    seller_settings: {
+                        select: {
+                            auto_accept_orders: true,
+                            default_warranty_period: true,
+                            return_window: true,
+                            shipping_provider: true,
+                            min_order_value: true
+                        }
+                    }
                 }
             };
         }
@@ -614,7 +677,7 @@ export const searchFishes = async (req, res) => {
         const totalPages = Math.ceil(totalCount / validatedLimit);
         const currentPage = Math.floor(validatedOffset / validatedLimit) + 1;
 
-        // Sort results by relevance (optional enhancement)
+        // Enhanced relevance sorting with breeder data consideration
         const sortedResults = fishListings.sort((a, b) => {
             const aNameMatch = a.name.toLowerCase().includes(sanitizedKeyword);
             const bNameMatch = b.name.toLowerCase().includes(sanitizedKeyword);
@@ -629,6 +692,17 @@ export const searchFishes = async (req, res) => {
             if (aExactMatch && !bExactMatch) return -1;
             if (!aExactMatch && bExactMatch) return 1;
             
+            // Consider breeder name matches for relevance
+            if (parsedIncludeSeller && a.users && b.users) {
+                const aBreederMatch = a.users.business_name?.toLowerCase().includes(sanitizedKeyword) || 
+                                    a.users.display_name?.toLowerCase().includes(sanitizedKeyword);
+                const bBreederMatch = b.users.business_name?.toLowerCase().includes(sanitizedKeyword) || 
+                                    b.users.display_name?.toLowerCase().includes(sanitizedKeyword);
+                
+                if (aBreederMatch && !bBreederMatch) return -1;
+                if (!aBreederMatch && bBreederMatch) return 1;
+            }
+            
             return 0;
         });
 
@@ -641,10 +715,17 @@ export const searchFishes = async (req, res) => {
             return `${baseUrl}?${currentParams.toString()}`;
         };
 
+        // Transform data to camel case if transformToCamelCase function exists
+        const transformedData = typeof transformToCamelCase === 'function' 
+            ? transformToCamelCase(sortedResults) 
+            : sortedResults;
+
+        console.log("Tranformed Data in search fishes : ", transformedData)
+
         // Return successful response
         return res.status(200).json({
             success: true,
-            data: sortedResults,
+            data: transformedData,
             metadata: {
                 count: fishListings.length,
                 totalCount,
@@ -671,6 +752,10 @@ export const searchFishes = async (req, res) => {
                 sorting: {
                     sortBy: validatedSortBy,
                     sortOrder: validatedSortOrder
+                },
+                includeOptions: {
+                    includeCategory: parsedIncludeCategory,
+                    includeSeller: parsedIncludeSeller
                 }
             },
             _links: {
