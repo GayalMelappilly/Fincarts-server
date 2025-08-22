@@ -26,6 +26,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+app.options('*', cors()); 
 
 
 app.use('/api/v1', userRouter, productRouter, orderRouter, cartRouter, wishlistRouter)
