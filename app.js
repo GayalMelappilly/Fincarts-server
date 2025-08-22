@@ -16,15 +16,17 @@ export const app = express()
 app.use(express.json({ limit: '10mb' }))
 app.use(cookieParser())
 app.use(cors({
-    origin: ['https://fin-cart-web-client.vercel.app', 'http://localhost:3000', 'https://www.fincarts.com'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'Access-Control-Allow-Credentials'
-    ]
-}))
+  origin: [
+    'https://fin-cart-web-client.vercel.app',
+    'http://localhost:3000',
+    'https://www.fincarts.com',
+    'https://fincarts.com'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 
 app.use('/api/v1', userRouter, productRouter, orderRouter, cartRouter, wishlistRouter)
 app.use('/api/v1/seller', sellerOrderRouter, sellerProductRouter, sellerProfileRouter)

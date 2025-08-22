@@ -16,7 +16,8 @@ const options = {
   cert: fs.readFileSync(certPath)
 };
 
-const server = process.env.NODE_ENV === 'production' ? https.createServer(options, app) : http.createServer(app)
+// const server = process.env.NODE_ENV === 'production' ? https.createServer(options, app) : http.createServer(app)
+const server = http.createServer(app);
 
 server.listen(5000, '0.0.0.0', async () => {
     await client.connect().then(() => {
